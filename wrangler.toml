@@ -1,0 +1,26 @@
+# Cloudflare Pages — XPElevator
+# Docs: https://developers.cloudflare.com/pages/framework-guides/nextjs/
+
+name = "xpelevator"
+compatibility_date = "2025-01-01"
+
+# nodejs_compat is required for Next.js edge runtime + Neon serverless driver
+compatibility_flags = ["nodejs_compat"]
+
+# Output directory produced by @cloudflare/next-on-pages
+pages_build_output_dir = ".vercel/output/static"
+
+# ── Environment variables ────────────────────────────────────────────────────
+# Set these in the Cloudflare Pages dashboard (Settings → Environment variables)
+# or via `wrangler pages secret put DATABASE_URL` / `wrangler pages secret put GROQ_API_KEY`
+#
+# Do NOT hard-code secrets here. The keys below are placeholders for reference only.
+#
+# [vars]
+# DATABASE_URL = "postgresql://..."   # Neon connection string
+# GROQ_API_KEY = "gsk_..."            # Groq API key
+
+# ── Preview environment ──────────────────────────────────────────────────────
+[env.preview]
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]

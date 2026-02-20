@@ -1,0 +1,51 @@
+export const runtime = 'edge';
+/**
+ * GET  /api/orgs  — list all organizations
+ * POST /api/orgs  — create a new organization
+ */
+import { NextResponse } from 'next/server';
+import prisma from '@/lib/prisma';
+
+
+export async function GET() {
+  try {
+    const orgs = await prisma.organization.findMany({
+      include: {
+        _count: { select: { users: true, sessions: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return NextResponse.json(orgs);
+  } catch (error) {
+    console.error('Failed to list organizations:', error);
+    return NextResponse.json({ error: 'Failed to list organizations' }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = (await request.json()) as { name: string; slug?: string };
+
+    if (!body.name?.trim()) {
+      return NextResponse.json({ error: 'name is required' }, { status: 400 });
+    }
+
+    // Auto-generate slug if not provided
+    const slug =
+      body.slug?.trim() ??
+      body.name
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
+
+    const org = await prisma.organization.create({
+      data: { name: body.name.trim(), slug },
+    });
+
+    return NextResponse.json(org, { status: 201 });
+  } catch (error) {
+    console.error('Failed to create organization:', error);
+    return NextResponse.json({ error: 'Failed to create organization' }, { status: 500 });
+  }
+}
