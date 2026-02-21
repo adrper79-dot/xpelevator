@@ -2,7 +2,6 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import prisma from '@/lib/prisma';
 
-export const runtime = 'edge';
 
 interface Props {
   params: Promise<{ id: string }>;

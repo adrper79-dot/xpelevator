@@ -1,4 +1,3 @@
-export const runtime = 'edge';
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { buildSessionSystemPrompt, streamNextCustomerMessage, scoreSession } from '@/lib/ai';

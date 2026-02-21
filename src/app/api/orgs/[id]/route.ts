@@ -1,4 +1,4 @@
-export const runtime = 'edge';
+
 /**
  * GET    /api/orgs/[id]  — get organization details with member count
  * PUT    /api/orgs/[id]  — update org name / plan

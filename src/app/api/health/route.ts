@@ -1,4 +1,3 @@
-export const runtime = 'edge';
 import { NextResponse } from 'next/server';
 
 // GET /api/health — returns which required env vars are present (without values)

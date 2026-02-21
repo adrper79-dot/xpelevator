@@ -1,4 +1,4 @@
-export const runtime = 'edge';
+
 /**
  * GET    /api/orgs/[id]/members  — list members of an org
  * POST   /api/orgs/[id]/members  — invite a user by email (creates User record if new)

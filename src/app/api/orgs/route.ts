@@ -1,4 +1,4 @@
-export const runtime = 'edge';
+
 /**
  * GET  /api/orgs  — list all organizations
  * POST /api/orgs  — create a new organization

@@ -1,4 +1,4 @@
-export const runtime = 'edge';
+
 /**
  * POST /api/telnyx/call
  *
