@@ -1,24 +1,26 @@
-# Cloudflare Workers + Assets — XPElevator
-# Docs: https://developers.cloudflare.com/workers/static-assets/
+# Cloudflare Pages — XPElevator
+# Docs: https://developers.cloudflare.com/pages/framework-guides/nextjs/
 
 name = "xpelevator"
-main = ".open-next/worker.js"
 compatibility_date = "2025-01-01"
 
 # nodejs_compat is required for Neon serverless driver
 compatibility_flags = ["nodejs_compat"]
 
-# Static assets served by the Worker
-[assets]
-directory = ".open-next/assets"
-binding = "ASSETS"
+# Static assets directory produced by @opennextjs/cloudflare
+pages_build_output_dir = ".open-next/assets"
 
 # ── Environment variables ────────────────────────────────────────────────────
-# Set via `wrangler secret put DATABASE_URL` / `wrangler secret put GROQ_API_KEY`
-# or in the Cloudflare Workers dashboard (Settings → Variables & Secrets)
+# Set these in the Cloudflare Pages dashboard (Settings → Environment variables)
+# or via `wrangler pages secret put DATABASE_URL` / `wrangler pages secret put GROQ_API_KEY`
 #
 # Do NOT hard-code secrets here. The keys below are placeholders for reference only.
 #
 # [vars]
 # DATABASE_URL = "postgresql://..."   # Neon connection string
 # GROQ_API_KEY = "gsk_..."            # Groq API key
+
+# ── Preview environment ──────────────────────────────────────────────────────
+[env.preview]
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
