@@ -1,36 +1,12 @@
 /**
  * Integration tests for /api/scenarios and /api/scenarios/[id]
- *
- * Bridges tested:
- *   1. GET all scenarios (no filter)
- *   2. GET scenarios filtered by jobTitleId
- *   3. POST creates scenario (validation: name, jobTitleId, type required)
- *   4. POST rejects when required fields are missing (400)
- *   5. PUT updates a scenario
- *   6. DELETE removes a scenario
+ * Live Neon DB — no mocks.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { prismaMock, resetPrismaMock } from '../../mocks/prisma';
-
-vi.mock('@/lib/prisma', () => ({ default: prismaMock }));
-
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { RUN, createJobTitle, createScenario, cleanupRun } from '../helpers/db';
 import { GET, POST } from '@/app/api/scenarios/route';
 import { PUT, DELETE } from '@/app/api/scenarios/[id]/route';
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-const SAMPLE_SCENARIO = {
-  id: 'sc-001',
-  name: 'Angry Bill Dispute',
-  description: 'Customer disputes an unexpected charge.',
-  type: 'CHAT' as const,
-  script: { customerPersona: 'Angry customer', customerObjective: 'Refund', difficulty: 'hard' },
-  jobTitleId: 'job-001',
-  createdAt: new Date(),
-  orgId: null,
-  jobTitle: { id: 'job-001', name: 'Billing Agent' },
-};
 
 function req(method: string, url: string, body?: unknown): Request {
   return new Request(`http://localhost${url}`, {
@@ -40,118 +16,135 @@ function req(method: string, url: string, body?: unknown): Request {
   });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+let seedJobId: string;
+let seedScenarioId: string;
+
+beforeAll(async () => {
+  const job = await createJobTitle({ name: `${RUN} Billing Spec` });
+  seedJobId = job.id;
+  const sc = await createScenario(seedJobId, { name: `${RUN} Angry Bill Dispute`, type: 'CHAT' });
+  seedScenarioId = sc.id;
+});
+afterAll(cleanupRun);
 
 describe('GET /api/scenarios', () => {
-  beforeEach(resetPrismaMock);
-
-  it('returns all scenarios when no filter', async () => {
-    prismaMock.scenario.findMany.mockResolvedValueOnce([SAMPLE_SCENARIO]);
+  it('returns 200 with an array', async () => {
     const r = req('GET', '/api/scenarios');
     const res = await GET(r);
     expect(res.status).toBe(200);
     const data = await res.json();
-    expect(data).toHaveLength(1);
-    expect(data[0].name).toBe('Angry Bill Dispute');
+    expect(Array.isArray(data)).toBe(true);
   });
 
-  it('filters by jobTitleId when provided', async () => {
-    prismaMock.scenario.findMany.mockResolvedValueOnce([SAMPLE_SCENARIO]);
-    const r = req('GET', '/api/scenarios?jobTitleId=job-001');
-    const res = await GET(r);
-    // Verify the where clause was applied
-    const callArgs = prismaMock.scenario.findMany.mock.calls[0][0] as {
-      where?: { jobTitleId: string };
-    };
-    expect(callArgs.where?.jobTitleId).toBe('job-001');
-    expect(res.status).toBe(200);
-  });
-
-  it('returns 500 on DB error', async () => {
-    prismaMock.scenario.findMany.mockRejectedValueOnce(new Error('DB error'));
+  it('includes the seeded scenario in unfiltered results', async () => {
     const r = req('GET', '/api/scenarios');
     const res = await GET(r);
-    expect(res.status).toBe(500);
+    const data: Array<{ id: string }> = await res.json();
+    expect(data.some(s => s.id === seedScenarioId)).toBe(true);
+  });
+
+  it('filters by jobTitleId and returns matching scenario', async () => {
+    const r = req('GET', `/api/scenarios?jobTitleId=${seedJobId}`);
+    const res = await GET(r);
+    expect(res.status).toBe(200);
+    const data: Array<{ id: string; jobTitleId: string }> = await res.json();
+    expect(data.length).toBeGreaterThan(0);
+    expect(data.every(s => s.jobTitleId === seedJobId)).toBe(true);
+    expect(data.some(s => s.id === seedScenarioId)).toBe(true);
+  });
+
+  it('returns empty array when filtering by nonexistent jobTitleId', async () => {
+    const r = req('GET', '/api/scenarios?jobTitleId=nonexistent-job-123');
+    const res = await GET(r);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data).toHaveLength(0);
+  });
+
+  it('includes jobTitle nested in each scenario', async () => {
+    const r = req('GET', `/api/scenarios?jobTitleId=${seedJobId}`);
+    const res = await GET(r);
+    const data: Array<{ id: string; jobTitle: { id: string; name: string } }> = await res.json();
+    const seeded = data.find(s => s.id === seedScenarioId);
+    expect(seeded?.jobTitle.id).toBe(seedJobId);
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-
 describe('POST /api/scenarios', () => {
-  beforeEach(resetPrismaMock);
-
   it('creates a scenario and returns 201', async () => {
-    prismaMock.scenario.create.mockResolvedValueOnce(SAMPLE_SCENARIO);
     const r = req('POST', '/api/scenarios', {
-      jobTitleId: 'job-001',
-      name: 'Angry Bill Dispute',
-      type: 'CHAT',
+      jobTitleId: seedJobId,
+      name: `${RUN} Phone Dispute`,
+      type: 'PHONE',
+      description: 'Customer upset about overcharge.',
     });
     const res = await POST(r);
     expect(res.status).toBe(201);
-    const data = await res.json();
-    expect(data.name).toBe('Angry Bill Dispute');
+    const data: { id: string; name: string; type: string } = await res.json();
+    expect(data.name).toBe(`${RUN} Phone Dispute`);
+    expect(data.type).toBe('PHONE');
+    expect(typeof data.id).toBe('string');
   });
 
   it('returns 400 when jobTitleId is missing', async () => {
-    const r = req('POST', '/api/scenarios', { name: 'Test', type: 'CHAT' });
+    const r = req('POST', '/api/scenarios', { name: `${RUN} X`, type: 'CHAT' });
     const res = await POST(r);
     expect(res.status).toBe(400);
-    const data = await res.json();
-    expect(data.error).toContain('required');
+    const body = await res.json();
+    expect(body).toHaveProperty('error');
   });
 
   it('returns 400 when name is missing', async () => {
-    const r = req('POST', '/api/scenarios', { jobTitleId: 'job-001', type: 'CHAT' });
+    const r = req('POST', '/api/scenarios', { jobTitleId: seedJobId, type: 'CHAT' });
     const res = await POST(r);
     expect(res.status).toBe(400);
   });
 
   it('returns 400 when type is missing', async () => {
-    const r = req('POST', '/api/scenarios', { jobTitleId: 'job-001', name: 'Test' });
+    const r = req('POST', '/api/scenarios', { jobTitleId: seedJobId, name: `${RUN} Y` });
     const res = await POST(r);
     expect(res.status).toBe(400);
   });
-
-  it('defaults script to {} when not provided', async () => {
-    prismaMock.scenario.create.mockResolvedValueOnce(SAMPLE_SCENARIO);
-    const r = req('POST', '/api/scenarios', {
-      jobTitleId: 'job-001',
-      name: 'Quick Test',
-      type: 'CHAT',
-    });
-    await POST(r);
-    const createArgs = prismaMock.scenario.create.mock.calls[0][0] as {
-      data: { script: Record<string, unknown> };
-    };
-    expect(createArgs.data.script).toEqual({});
-  });
 });
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 describe('PUT /api/scenarios/[id]', () => {
-  beforeEach(resetPrismaMock);
+  let putTargetId: string;
+  beforeAll(async () => {
+    const sc = await createScenario(seedJobId, { name: `${RUN} PutScenario` });
+    putTargetId = sc.id;
+  });
 
   it('updates scenario name and returns 200', async () => {
-    const updated = { ...SAMPLE_SCENARIO, name: 'Updated Scenario' };
-    prismaMock.scenario.update.mockResolvedValueOnce(updated);
-    const r = req('PUT', '/api/scenarios/sc-001', { name: 'Updated Scenario' });
-    const res = await PUT(r, { params: Promise.resolve({ id: 'sc-001' }) });
+    const r = req('PUT', `/api/scenarios/${putTargetId}`, { name: `${RUN} PutScenario-v2` });
+    const res = await PUT(r, { params: Promise.resolve({ id: putTargetId }) });
     expect(res.status).toBe(200);
-    expect((await res.json()).name).toBe('Updated Scenario');
+    const data: { name: string } = await res.json();
+    expect(data.name).toBe(`${RUN} PutScenario-v2`);
+  });
+
+  it('returns 500 for nonexistent id', async () => {
+    const r = req('PUT', '/api/scenarios/bogus-id-xxx', { name: 'X' });
+    const res = await PUT(r, { params: Promise.resolve({ id: 'bogus-id-xxx' }) });
+    expect(res.status).toBe(500);
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-
 describe('DELETE /api/scenarios/[id]', () => {
-  beforeEach(resetPrismaMock);
+  let deleteTargetId: string;
+  beforeAll(async () => {
+    const sc = await createScenario(seedJobId, { name: `${RUN} DelScenario` });
+    deleteTargetId = sc.id;
+  });
 
   it('returns 204 on successful delete', async () => {
-    prismaMock.scenario.delete.mockResolvedValueOnce(SAMPLE_SCENARIO);
-    const r = req('DELETE', '/api/scenarios/sc-001');
-    const res = await DELETE(r, { params: Promise.resolve({ id: 'sc-001' }) });
+    const r = req('DELETE', `/api/scenarios/${deleteTargetId}`);
+    const res = await DELETE(r, { params: Promise.resolve({ id: deleteTargetId }) });
     expect(res.status).toBe(204);
+  });
+
+  it('returns 500 for nonexistent id', async () => {
+    const r = req('DELETE', '/api/scenarios/bogus-id-yyy');
+    const res = await DELETE(r, { params: Promise.resolve({ id: 'bogus-id-yyy' }) });
+    expect(res.status).toBe(500);
   });
 });

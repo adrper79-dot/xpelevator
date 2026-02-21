@@ -30,7 +30,7 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    const scenario = await prisma.scenario.update({
+    await prisma.scenario.update({
       where: { id },
       data: {
         name: body.name,
@@ -38,6 +38,11 @@ export async function PUT(
         type: body.type,
         script: body.script ?? {},
       },
+    });
+    // PrismaNeonHTTP does not support implicit transactions;
+    // fetch relations separately after update.
+    const scenario = await prisma.scenario.findUnique({
+      where: { id },
       include: { jobTitle: { select: { id: true, name: true } } },
     });
     return NextResponse.json(scenario);

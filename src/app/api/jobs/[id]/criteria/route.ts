@@ -36,12 +36,13 @@ export async function POST(
       return NextResponse.json({ error: 'criteriaId is required' }, { status: 400 });
     }
 
-    const link = await prisma.jobCriteria.upsert({
-      where: {
-        jobTitleId_criteriaId: { jobTitleId, criteriaId: body.criteriaId },
-      },
-      create: { jobTitleId, criteriaId: body.criteriaId },
-      update: {},
+    // PrismaNeonHTTP does not support implicit transactions; upsert uses them.
+    // Use findUnique + create pattern instead.
+    const existing = await prisma.jobCriteria.findUnique({
+      where: { jobTitleId_criteriaId: { jobTitleId, criteriaId: body.criteriaId } },
+    });
+    const link = existing ?? await prisma.jobCriteria.create({
+      data: { jobTitleId, criteriaId: body.criteriaId },
     });
     return NextResponse.json(link, { status: 201 });
   } catch (error) {

@@ -12,6 +12,7 @@
  * Environment: jsdom
  * Run:  npx vitest tests/ui/home-page.test.tsx
  */
+// @vitest-environment happy-dom
 
 /// <reference types="@testing-library/jest-dom" />
 import React from 'react';
@@ -63,7 +64,11 @@ describe('Home page — unauthenticated state', () => {
 
   it('renders XPElevator heading', async () => {
     await renderHome();
-    expect(screen.getByText(/XPElevator|XP.*Elevator/i)).toBeInTheDocument();
+    // h1 contains "XP" + <span>Elevator</span> — check via heading role
+    const h1 = screen.getByRole('heading', { level: 1 });
+    expect(h1).toBeInTheDocument();
+    // textContent collapses child spans; strip whitespace before comparing
+    expect(h1.textContent?.replace(/\s+/g, '')).toBe('XPElevator');
   });
 
   it('shows Sign in link when no session', async () => {

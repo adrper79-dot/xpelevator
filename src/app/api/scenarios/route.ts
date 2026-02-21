@@ -34,7 +34,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const scenario = await prisma.scenario.create({
+    const created = await prisma.scenario.create({
       data: {
         jobTitleId: body.jobTitleId,
         name: body.name,
@@ -42,6 +42,11 @@ export async function POST(request: Request) {
         type: body.type,
         script: body.script ?? {},
       },
+    });
+    // PrismaNeonHTTP does not support implicit transactions;
+    // fetch relations separately after creation.
+    const scenario = await prisma.scenario.findUnique({
+      where: { id: created.id },
       include: { jobTitle: { select: { id: true, name: true } } },
     });
     return NextResponse.json(scenario, { status: 201 });

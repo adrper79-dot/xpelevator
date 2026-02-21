@@ -10,7 +10,8 @@ export async function POST(request: Request) {
     const { sessionId, scores } = body;
 
     // scores: [{ criteriaId, score, feedback }]
-    const createdScores = await prisma.$transaction(
+    // PrismaNeonHTTP does not support transactions; create scores in parallel.
+    const createdScores = await Promise.all(
       scores.map((s: { criteriaId: string; score: number; feedback?: string }) =>
         prisma.score.create({
           data: {

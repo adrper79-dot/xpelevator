@@ -1,7 +1,11 @@
 export const runtime = 'edge';
 import Link from 'next/link';
+import { auth, signOut } from '@/auth';
 
-export default function Home() {
+export default async function Home() {
+  const session = await auth();
+  const user = session?.user;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 text-white">
       {/* Header bar */}
@@ -10,12 +14,41 @@ export default function Home() {
           <span className="text-sm font-semibold">
             XP<span className="text-blue-400">Elevator</span>
           </span>
-          <Link
-            href="/admin"
-            className="text-xs px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors"
-          >
-            Admin
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/admin"
+              className="text-xs px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 transition-colors"
+            >
+              Admin
+            </Link>
+            {user ? (
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-slate-300">
+                  Welcome, <span className="font-medium text-white">{user.name}</span>
+                </span>
+                <form
+                  action={async () => {
+                    'use server';
+                    await signOut({ redirectTo: '/auth/signin' });
+                  }}
+                >
+                  <button
+                    type="submit"
+                    className="text-xs px-3 py-1.5 rounded-lg bg-red-800/60 hover:bg-red-700/60 transition-colors"
+                  >
+                    Sign out
+                  </button>
+                </form>
+              </div>
+            ) : (
+              <Link
+                href="/auth/signin"
+                className="text-xs px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 transition-colors"
+              >
+                Sign in
+              </Link>
+            )}
+          </div>
         </div>
       </header>
 
@@ -28,7 +61,6 @@ export default function Home() {
             Virtual customer simulator for training employees on real-world interactions.
             Practice phone calls and chat conversations, scored against customizable criteria.
           </p>
-
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

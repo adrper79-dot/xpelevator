@@ -7,7 +7,7 @@ import prisma from '@/lib/prisma';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const session = await prisma.simulationSession.create({
+    const created = await prisma.simulationSession.create({
       data: {
         userId: body.userId,
         jobTitleId: body.jobTitleId,
@@ -16,10 +16,12 @@ export async function POST(request: Request) {
         status: 'IN_PROGRESS',
         startedAt: new Date()
       },
-      include: {
-        scenario: true,
-        jobTitle: true
-      }
+    });
+    // PrismaNeonHTTP does not support implicit transactions;
+    // fetch relations separately after creation.
+    const session = await prisma.simulationSession.findUnique({
+      where: { id: created.id },
+      include: { scenario: true, jobTitle: true },
     });
     return NextResponse.json(session, { status: 201 });
   } catch (error) {

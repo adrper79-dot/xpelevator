@@ -13,6 +13,7 @@
  * Environment: jsdom (vitest environmentMatchGlobs)
  * Run:  npx vitest tests/ui/simulate-page.test.tsx
  */
+// @vitest-environment happy-dom
 
 /// <reference types="@testing-library/jest-dom" />
 import React from 'react';
@@ -20,15 +21,19 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
+// ── Hoisted mock handles — must use vi.hoisted() so these are available inside
+// the vi.mock() factory callbacks, which are hoisted to the top of the file
+// before any const declarations run.  ────────────────────────────────────────
+const mockUseSession = vi.hoisted(() => vi.fn());
+const mockPush = vi.hoisted(() => vi.fn());
+
 // ── Mock next-auth/react to avoid real JWT initialisation ─────────────────────
-const mockUseSession = vi.fn();
 vi.mock('next-auth/react', () => ({
   useSession: mockUseSession,
   SessionProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 // ── Mock next/navigation ──────────────────────────────────────────────────────
-const mockPush = vi.fn();
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
 }));
@@ -98,21 +103,20 @@ function mockFetch(overrides: { jobs?: unknown; jobsStatus?: number; simStatus?:
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Lazy import so mocks are established before the module loads
+// Import SimulatePage at module level (after vi.mock() hoisting).
+// Do NOT use vi.resetModules() here — it would create a fresh React instance
+// that differs from @testing-library/react's React, causing "Invalid hook call"
+// (ReactCurrentDispatcher.current === null in the component's React copy).
 // ─────────────────────────────────────────────────────────────────────────────
 
-let SimulatePage: React.ComponentType;
+import SimulatePage from '@/app/simulate/page';
 
-beforeEach(async () => {
-  vi.resetModules();
-  const mod = await import('@/app/simulate/page');
-  SimulatePage = mod.default;
+beforeEach(() => {
+  mockPush.mockReset();
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
-  mockPush.mockReset();
-  vi.resetModules();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -210,8 +214,9 @@ describe('SimulatePage — job and scenario selection', () => {
     mockFetch();
     render(<SimulatePage />);
     await userEvent.click(await screen.findByText('Help Desk Technician'));
-    const startBtn = await screen.findByRole('button', { name: /start.*simulation|start/i });
-    await userEvent.click(startBtn);
+    // Job has multiple scenarios (each has a "Start" button) — click the first
+    const startBtns = await screen.findAllByRole('button', { name: /^start$/i });
+    await userEvent.click(startBtns[0]);
     await waitFor(() =>
       expect(global.fetch).toHaveBeenCalledWith(
         expect.stringContaining('/api/simulations'),
@@ -224,8 +229,8 @@ describe('SimulatePage — job and scenario selection', () => {
     mockFetch({ simStatus: 201 });
     render(<SimulatePage />);
     await userEvent.click(await screen.findByText('Help Desk Technician'));
-    const startBtn = await screen.findByRole('button', { name: /start.*simulation|start/i });
-    await userEvent.click(startBtn);
+    const startBtns = await screen.findAllByRole('button', { name: /^start$/i });
+    await userEvent.click(startBtns[0]);
     await waitFor(() =>
       expect(mockPush).toHaveBeenCalledWith(expect.stringContaining('/simulate/session-abc'))
     );
@@ -235,8 +240,8 @@ describe('SimulatePage — job and scenario selection', () => {
     mockFetch({ simStatus: 500 });
     render(<SimulatePage />);
     await userEvent.click(await screen.findByText('Help Desk Technician'));
-    const startBtn = await screen.findByRole('button', { name: /start.*simulation|start/i });
-    await userEvent.click(startBtn);
+    const startBtns = await screen.findAllByRole('button', { name: /^start$/i });
+    await userEvent.click(startBtns[0]);
     await waitFor(() =>
       expect(screen.getByText(/failed|error/i)).toBeInTheDocument()
     );

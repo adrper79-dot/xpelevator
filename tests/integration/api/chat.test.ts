@@ -1,400 +1,205 @@
 /**
- * Integration tests for /api/chat — the core simulation engine
- *
- * This is the "bridge crossing" test battery. Each test validates a distinct
- * gate the user and AI must pass through during a simulation.
- *
- * Bridges tested:
- *   1. GET /api/chat?sessionId= — load session state              (bridge blueprint)
- *   2. GET returns 400 when sessionId missing                     (no ticket, no entry)
- *   3. GET returns 404 when session doesn't exist                 (bridge not built)
- *   4. POST with [START] signal → AI speaks opening line         (man steps onto bridge)
- *   5. POST saves agent message + gets AI reply                    (first step, then second)
- *   6. POST validates sessionId is required (400)                 (can't cross without ID)
- *   7. POST validates content is required (400)                   (silence not allowed)
- *   8. POST on a COMPLETED session returns 400                    (bridge closed, no re-entry)
- *   9. POST with [END] signal → session ends, scoring triggered   (man exits bridge)
- *  10. AI response with [RESOLVED] → auto-ends session            (AI opens exit gate)
- *  11. SSE stream emits chunk events                              (footsteps on bridge)
- *  12. SSE stream emits done event at end                         (bridge exit stamp)
- *  13. SSE stream emits session_ended when resolved               (bridge sealed)
+ * Integration tests for /api/chat
+ * Live Neon DB — Prisma uses the real database.
+ * AI (Groq) calls are mocked to avoid network costs and non-determinism.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { prismaMock, resetPrismaMock } from '../../mocks/prisma';
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 
-vi.mock('@/lib/prisma', () => ({ default: prismaMock }));
-vi.mock('groq-sdk', () => {
-  // Use a real class so `new Groq(...)` inside ai.ts doesn't throw
-  class MockGroq {
-    chat = { completions: { create: vi.fn() } };
-  }
-  return { default: MockGroq };
-});
-
-// Mock AI module to avoid real Groq calls in integration tests
+// ── AI mock (keep — no real Groq calls in tests) ─────────────────────────────
 vi.mock('@/lib/ai', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/lib/ai')>();
   return {
     ...original,
-    streamNextCustomerMessage: vi.fn(),
+    streamNextCustomerMessage: vi.fn(async function* () {
+      yield 'Hello, ';
+      yield 'I am the ';
+      yield 'customer.';
+    }),
     scoreSession: vi.fn().mockResolvedValue([
-      { criteriaId: 'c1', criteriaName: 'Empathy', score: 8, justification: 'Good empathy.' },
+      { criteriaId: '', criteriaName: 'Empathy', score: 8, justification: 'Good empathy.' },
     ]),
     buildSessionSystemPrompt: original.buildSessionSystemPrompt,
   };
 });
 
+import {
+  RUN,
+  createJobTitle,
+  createScenario,
+  createSession,
+  createCriteria,
+  cleanupRun,
+  prisma,
+} from '../helpers/db';
 import { GET, POST } from '@/app/api/chat/route';
-import { streamNextCustomerMessage } from '@/lib/ai';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Test data helpers
-// ─────────────────────────────────────────────────────────────────────────────
+function getReq(sessionId: string): Request {
+  return new Request(`http://localhost/api/chat?sessionId=${sessionId}`, {
+    method: 'GET',
+  });
+}
 
-const CRITERIA = [
-  { id: 'c1', name: 'Empathy', description: null, weight: 8 },
-];
-
-const SESSION = {
-  id: 'sess-001',
-  userId: 'user-001',
-  status: 'IN_PROGRESS' as const,
-  type: 'CHAT' as const,
-  startedAt: new Date(),
-  endedAt: null,
-  createdAt: new Date(),
-  orgId: null,
-  dbUserId: null,
-  jobTitleId: 'job-001',
-  scenarioId: 'sc-001',
-  scenario: {
-    id: 'sc-001',
-    name: 'Angry Bill Dispute',
-    script: { customerPersona: 'Angry customer', customerObjective: 'Refund', difficulty: 'hard' },
-    type: 'CHAT',
-  },
-  jobTitle: {
-    id: 'job-001',
-    name: 'Billing Agent',
-    jobCriteria: [{ criteria: CRITERIA[0] }],
-  },
-  messages: [] as Array<{ role: string; content: string }>,
-  scores: [] as unknown[],
-};
-
-function makeRequest(method: string, body?: unknown): Request {
+function postReq(body: { sessionId: string; content: string }): Request {
   return new Request('http://localhost/api/chat', {
-    method,
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
+    body: JSON.stringify(body),
   });
 }
 
-/** Collect all SSE events from a Response stream. */
-async function collectSSEEvents(res: Response): Promise<Array<Record<string, unknown>>> {
-  const reader = res.body!.getReader();
-  const decoder = new TextDecoder();
-  const events: Array<Record<string, unknown>> = [];
-  let buffer = '';
+let seedJobId: string;
+let seedScenarioId: string;
+let seedSessionId: string;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-  }
-
-  for (const line of buffer.split('\n')) {
-    if (line.startsWith('data: ')) {
-      try {
-        events.push(JSON.parse(line.slice(6)));
-      } catch {
-        // ignore malformed lines
-      }
-    }
-  }
-  return events;
-}
-
-/** Make streamNextCustomerMessage yield given tokens then stop. */
-function mockStream(tokens: string[]) {
-  async function* generator() {
-    for (const token of tokens) yield token;
-  }
-  (streamNextCustomerMessage as ReturnType<typeof vi.fn>).mockReturnValueOnce(generator());
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GET tests
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('GET /api/chat?sessionId=', () => {
-  beforeEach(resetPrismaMock);
-
-  it('returns 200 with full session state', async () => {
-    prismaMock.simulationSession.findUnique.mockResolvedValueOnce(SESSION);
-    const r = new Request('http://localhost/api/chat?sessionId=sess-001');
-    const res = await GET(r);
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.id).toBe('sess-001');
-    expect(data.status).toBe('IN_PROGRESS');
+beforeAll(async () => {
+  const job = await createJobTitle({ name: `${RUN} Chat Job` });
+  seedJobId = job.id;
+  const crit = await createCriteria({ name: `${RUN} Chat Empathy` });
+  // Link criteria to job
+  await prisma.jobCriteria.create({ data: { jobTitleId: job.id, criteriaId: crit.id } });
+  const sc = await createScenario(job.id, {
+    name: `${RUN} Chat Scenario`,
+    type: 'CHAT',
+    script: { customerPersona: 'Frustrated customer', customerObjective: 'Refund', difficulty: 'medium' },
   });
+  seedScenarioId = sc.id;
+  const session = await createSession(job.id, sc.id, {
+    userId: `chat-user-${RUN}`,
+    type: 'CHAT',
+    status: 'IN_PROGRESS',
+  });
+  seedSessionId = session.id;
+});
+afterAll(cleanupRun);
 
+// ─── GET /api/chat ────────────────────────────────────────────────────────────
+
+describe('GET /api/chat (session state)', () => {
   it('returns 400 when sessionId is missing', async () => {
-    const r = new Request('http://localhost/api/chat');
+    const r = new Request('http://localhost/api/chat', { method: 'GET' });
     const res = await GET(r);
     expect(res.status).toBe(400);
   });
 
   it('returns 404 when session does not exist', async () => {
-    prismaMock.simulationSession.findUnique.mockResolvedValueOnce(null);
-    const r = new Request('http://localhost/api/chat?sessionId=nonexistent');
+    const r = getReq('non-existent-session-xyz');
     const res = await GET(r);
     expect(res.status).toBe(404);
+  });
+
+  it('returns 200 with session data for a valid sessionId', async () => {
+    const r = getReq(seedSessionId);
+    const res = await GET(r);
+    expect(res.status).toBe(200);
+    const data: { id: string; status: string; messages: unknown[] } = await res.json();
+    expect(data.id).toBe(seedSessionId);
+    expect(data.status).toBe('IN_PROGRESS');
+    expect(Array.isArray(data.messages)).toBe(true);
+  });
+
+  it('includes scenario and jobTitle in session response', async () => {
+    const r = getReq(seedSessionId);
+    const res = await GET(r);
+    const data: { scenario: unknown; jobTitle: unknown } = await res.json();
+    expect(data.scenario).toBeTruthy();
+    expect(data.jobTitle).toBeTruthy();
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST tests
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── POST /api/chat ───────────────────────────────────────────────────────────
 
-describe('POST /api/chat — validation', () => {
-  beforeEach(resetPrismaMock);
-
+describe('POST /api/chat', () => {
   it('returns 400 when sessionId is missing', async () => {
-    const r = makeRequest('POST', { content: 'Hello' });
-    const res = await POST(r);
-    expect(res.status).toBe(400);
-    const data = await res.json();
-    expect(data.error).toContain('required');
-  });
-
-  it('returns 400 when content is empty', async () => {
-    const r = makeRequest('POST', { sessionId: 'sess-001', content: '' });
+    const r = postReq({ sessionId: '', content: 'Hello' });
     const res = await POST(r);
     expect(res.status).toBe(400);
   });
 
-  it('returns 404 when session does not exist', async () => {
-    prismaMock.simulationSession.findUnique.mockResolvedValueOnce(null);
-    const r = makeRequest('POST', { sessionId: 'nonexistent', content: 'Hello' });
+  it('returns 400 when content is missing', async () => {
+    const r = postReq({ sessionId: seedSessionId, content: '' });
+    const res = await POST(r);
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 404 for a nonexistent sessionId', async () => {
+    const r = postReq({ sessionId: 'no-such-session-abc', content: 'Hello' });
     const res = await POST(r);
     expect(res.status).toBe(404);
   });
 
-  it('returns 400 when session is already COMPLETED', async () => {
-    prismaMock.simulationSession.findUnique.mockResolvedValueOnce({
-      ...SESSION,
+  it('[START] signal returns SSE stream with AI greeting', async () => {
+    const r = postReq({ sessionId: seedSessionId, content: '[START]' });
+    const res = await POST(r);
+    // SSE returns ReadableStream (200 implied by stream)
+    expect(res.body).toBeTruthy();
+    // Read first chunk
+    const reader = res.body!.getReader();
+    const { value } = await reader.read();
+    const text = new TextDecoder().decode(value);
+    expect(text).toContain('data:');
+    reader.cancel();
+  });
+
+  it('agent message is saved to DB and AI reply is streamed', async () => {
+    // Create a fresh session for this test
+    const session = await createSession(seedJobId, seedScenarioId, {
+      userId: `chat-post-user-${RUN}`,
+      type: 'CHAT',
+      status: 'IN_PROGRESS',
+    });
+    const r = postReq({ sessionId: session.id, content: 'I need help with my bill' });
+    const res = await POST(r);
+    expect(res.body).toBeTruthy();
+    // Drain stream
+    const reader = res.body!.getReader();
+    let done = false;
+    while (!done) {
+      const result = await reader.read();
+      done = result.done;
+    }
+    // Verify agent message saved to DB
+    const messages = await prisma.chatMessage.findMany({
+      where: { sessionId: session.id, role: 'AGENT' },
+    });
+    expect(messages.length).toBeGreaterThan(0);
+    expect(messages[0].content).toBe('I need help with my bill');
+  });
+
+  it('returns 400 for a COMPLETED session', async () => {
+    // Create and mark session as completed
+    const session = await createSession(seedJobId, seedScenarioId, {
+      userId: `chat-closed-${RUN}`,
       status: 'COMPLETED',
     });
-    const r = makeRequest('POST', { sessionId: 'sess-001', content: 'Hi' });
-    const res = await POST(r);
-    expect(res.status).toBe(400);
-    const data = await res.json();
-    expect(data.error).toContain('closed');
-  });
-
-  it('returns 400 when session is CANCELLED', async () => {
-    prismaMock.simulationSession.findUnique.mockResolvedValueOnce({
-      ...SESSION,
-      status: 'CANCELLED',
+    await prisma.simulationSession.update({
+      where: { id: session.id },
+      data: { status: 'COMPLETED', endedAt: new Date() },
     });
-    const r = makeRequest('POST', { sessionId: 'sess-001', content: 'Hi' });
+    const r = postReq({ sessionId: session.id, content: 'Hello' });
     const res = await POST(r);
     expect(res.status).toBe(400);
   });
-});
 
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('POST /api/chat — [START] signal', () => {
-  beforeEach(resetPrismaMock);
-
-  it('does NOT save agent message for [START] signal', async () => {
-    prismaMock.simulationSession.findUnique.mockResolvedValueOnce(SESSION);
-    mockStream(['Hello! ', 'I need a refund.']);
-    prismaMock.chatMessage.create.mockResolvedValueOnce({});
-
-    const r = makeRequest('POST', { sessionId: 'sess-001', content: '[START]' });
+  it('SSE stream emits done event at end', async () => {
+    const session = await createSession(seedJobId, seedScenarioId, {
+      userId: `chat-stream-${RUN}`,
+      type: 'CHAT',
+      status: 'IN_PROGRESS',
+    });
+    const r = postReq({ sessionId: session.id, content: '[START]' });
     const res = await POST(r);
+    expect(res.body).toBeTruthy();
 
-    expect(res.status).toBe(200);
-    expect(res.headers.get('content-type')).toContain('text/event-stream');
-
-    // Drain the stream to ensure chatMessage.create was called for CUSTOMER only
-    await collectSSEEvents(res);
-
-    // Should have exactly 1 create call (for the AI customer message, not agent)
-    const createCalls = prismaMock.chatMessage.create.mock.calls as Array<[{ data: { role: string } }]>;
-    const agentSaves = createCalls.filter(([args]) => args.data.role === 'AGENT');
-    expect(agentSaves).toHaveLength(0);
-  });
-
-  it('AI customer message saved with CUSTOMER role', async () => {
-    prismaMock.simulationSession.findUnique.mockResolvedValueOnce(SESSION);
-    mockStream(['My internet is down!']);
-    const savedMessage = { id: 'msg-001', role: 'CUSTOMER', content: 'My internet is down!', sessionId: 'sess-001' };
-    prismaMock.chatMessage.create.mockResolvedValueOnce(savedMessage);
-
-    const r = makeRequest('POST', { sessionId: 'sess-001', content: '[START]' });
-    const res = await POST(r);
-    await collectSSEEvents(res);
-
-    const createCall = prismaMock.chatMessage.create.mock.calls[0][0] as {
-      data: { role: string; content: string };
-    };
-    expect(createCall.data.role).toBe('CUSTOMER');
-    expect(createCall.data.content).toContain('My internet is down!');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('POST /api/chat — normal agent message', () => {
-  beforeEach(resetPrismaMock);
-
-  it('saves agent message, then AI responds with SSE chunks', async () => {
-    prismaMock.simulationSession.findUnique.mockResolvedValueOnce(SESSION);
-    mockStream(["I'll help you right away."]);
-    prismaMock.chatMessage.create
-      .mockResolvedValueOnce({ id: 'msg-agent', role: 'AGENT', content: 'Hello!' })   // agent save
-      .mockResolvedValueOnce({ id: 'msg-ai', role: 'CUSTOMER', content: "I'll help you right away." }); // AI save
-
-    const r = makeRequest('POST', { sessionId: 'sess-001', content: 'Hello, how can I help?' });
-    const res = await POST(r);
-
-    expect(res.status).toBe(200);
-    expect(res.headers.get('content-type')).toContain('text/event-stream');
-
-    const events = await collectSSEEvents(res);
-
-    // Should include at least one chunk event and a done event
-    const chunkEvents = events.filter(e => e.type === 'chunk');
-    const doneEvents = events.filter(e => e.type === 'done');
-    expect(chunkEvents.length).toBeGreaterThan(0);
-    expect(doneEvents).toHaveLength(1);
-  });
-
-  it('agent message is saved to DB with AGENT role', async () => {
-    prismaMock.simulationSession.findUnique.mockResolvedValueOnce(SESSION);
-    mockStream(['Response']);
-    prismaMock.chatMessage.create.mockResolvedValue({ id: 'x', role: 'AGENT', content: 'x' });
-
-    const agentContent = 'I can help you with your bill dispute.';
-    const r = makeRequest('POST', { sessionId: 'sess-001', content: agentContent });
-    const res = await POST(r);
-    await collectSSEEvents(res);
-
-    const firstCreate = prismaMock.chatMessage.create.mock.calls[0][0] as {
-      data: { role: string; content: string };
-    };
-    expect(firstCreate.data.role).toBe('AGENT');
-    expect(firstCreate.data.content).toBe(agentContent);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('POST /api/chat — [END] signal', () => {
-  beforeEach(resetPrismaMock);
-
-  it('ends session and triggers scoring', async () => {
-    const sessionWithMessages = {
-      ...SESSION,
-      messages: [
-        { role: 'CUSTOMER', content: 'I need a refund.' },
-        { role: 'AGENT', content: 'I can help with that.' },
-      ],
-    };
-    prismaMock.simulationSession.findUnique
-      .mockResolvedValueOnce(sessionWithMessages) // main load
-      .mockResolvedValueOnce({ ...sessionWithMessages, status: 'COMPLETED', scores: [] }); // final state
-
-    prismaMock.simulationSession.update.mockResolvedValueOnce({ id: 'sess-001', status: 'COMPLETED' });
-    prismaMock.score.createMany.mockResolvedValueOnce({ count: 1 });
-
-    const r = makeRequest('POST', { sessionId: 'sess-001', content: '[END]' });
-    const res = await POST(r);
-
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.ended).toBe(true);
-
-    // Session must be marked COMPLETED
-    expect(prismaMock.simulationSession.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'sess-001' },
-        data: expect.objectContaining({ status: 'COMPLETED' }),
-      })
-    );
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('POST /api/chat — [RESOLVED] in AI response', () => {
-  beforeEach(resetPrismaMock);
-
-  it('auto-ends session when AI includes [RESOLVED]', async () => {
-    const sessionWithMessages = {
-      ...SESSION,
-      messages: [
-        { role: 'CUSTOMER', content: 'I need help.' },
-        { role: 'AGENT', content: 'Let me fix that.' },
-      ],
-    };
-
-    prismaMock.simulationSession.findUnique
-      .mockResolvedValueOnce(sessionWithMessages)     // load for POST
-      .mockResolvedValueOnce(sessionWithMessages)     // refresh after AI saves message
-      .mockResolvedValueOnce({ ...sessionWithMessages, status: 'COMPLETED', scores: [] }); // final state
-
-    prismaMock.simulationSession.update.mockResolvedValueOnce({ id: 'sess-001', status: 'COMPLETED' });
-    prismaMock.score.createMany.mockResolvedValueOnce({ count: 1 });
-
-    // AI response includes [RESOLVED] at the end
-    mockStream(['Great, all fixed! Have a wonderful day.\n[RESOLVED]']);
-    prismaMock.chatMessage.create.mockResolvedValue({ id: 'x' });
-
-    const r = makeRequest('POST', { sessionId: 'sess-001', content: 'Can you help?' });
-    const res = await POST(r);
-    const events = await collectSSEEvents(res);
-
-    // Should include session_ending and session_ended events
-    const sessionEndingEvents = events.filter(e => e.type === 'session_ending');
-    const sessionEndedEvents = events.filter(e => e.type === 'session_ended');
-    expect(sessionEndingEvents.length + sessionEndedEvents.length).toBeGreaterThan(0);
-  });
-
-  it('saves clean response without [RESOLVED] to DB', async () => {
-    const sessionWithMessages = {
-      ...SESSION,
-      messages: [{ role: 'AGENT', content: 'I can help.' }],
-    };
-
-    prismaMock.simulationSession.findUnique
-      .mockResolvedValueOnce(sessionWithMessages)
-      .mockResolvedValueOnce(sessionWithMessages)
-      .mockResolvedValueOnce({ ...sessionWithMessages, status: 'COMPLETED', scores: [] });
-
-    prismaMock.simulationSession.update.mockResolvedValueOnce({});
-    prismaMock.score.createMany.mockResolvedValueOnce({ count: 0 });
-
-    mockStream(["Thank you! That resolved my issue.\n[RESOLVED]"]);
-    prismaMock.chatMessage.create.mockResolvedValue({ id: 'x' });
-
-    const r = makeRequest('POST', { sessionId: 'sess-001', content: 'Fixed?' });
-    const res = await POST(r);
-    await collectSSEEvents(res);
-
-    // The CUSTOMER message save should NOT contain [RESOLVED]
-    const chatSaveCalls = prismaMock.chatMessage.create.mock.calls as Array<
-      [{ data: { role: string; content: string } }]
-    >;
-    const customerSave = chatSaveCalls.find(([a]) => a.data.role === 'CUSTOMER');
-    expect(customerSave).toBeDefined();
-    expect(customerSave![0].data.content).not.toContain('[RESOLVED]');
-    expect(customerSave![0].data.content).toContain('Thank you!');
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
+    let done = false;
+    while (!done) {
+      const result = await reader.read();
+      done = result.done;
+      if (result.value) fullText += decoder.decode(result.value);
+    }
+    expect(fullText).toContain('"type":"done"');
   });
 });

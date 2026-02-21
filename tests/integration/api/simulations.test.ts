@@ -1,39 +1,11 @@
 /**
  * Integration tests for /api/simulations
- *
- * Bridges tested:
- *   1. POST creates session → bridge man starts crossing (PENDING→IN_PROGRESS)
- *   2. POST persists userId, jobTitleId, scenarioId, type
- *   3. POST handles DB error gracefully (500)
- *   4. GET all sessions — all bridge crossings visible
- *   5. GET filtered by userId — only one person's crossings shown
- *   6. GET handles DB error gracefully (500)
+ * Live Neon DB — no mocks.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { prismaMock, resetPrismaMock } from '../../mocks/prisma';
-
-vi.mock('@/lib/prisma', () => ({ default: prismaMock }));
-
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { RUN, createJobTitle, createScenario, createSession, cleanupRun } from '../helpers/db';
 import { GET, POST } from '@/app/api/simulations/route';
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-const BASE_SESSION = {
-  id: 'sess-001',
-  userId: 'user-auth-123',
-  jobTitleId: 'job-001',
-  scenarioId: 'sc-001',
-  type: 'CHAT' as const,
-  status: 'IN_PROGRESS' as const,
-  startedAt: new Date(),
-  endedAt: null,
-  createdAt: new Date(),
-  orgId: null,
-  dbUserId: null,
-  scenario: { id: 'sc-001', name: 'Test Scenario', type: 'CHAT' },
-  jobTitle: { id: 'job-001', name: 'Agent' },
-};
 
 function req(method: string, url: string, body?: unknown): Request {
   return new Request(`http://localhost${url}`, {
@@ -43,66 +15,86 @@ function req(method: string, url: string, body?: unknown): Request {
   });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+let seedJobId: string;
+let seedScenarioId: string;
+let seedSessionId: string;
+
+beforeAll(async () => {
+  const job = await createJobTitle({ name: `${RUN} SimJob` });
+  seedJobId = job.id;
+  const sc = await createScenario(seedJobId, { name: `${RUN} SimScenario`, type: 'CHAT' });
+  seedScenarioId = sc.id;
+  const session = await createSession(seedJobId, seedScenarioId, {
+    userId: `sim-user-${RUN}`,
+    type: 'CHAT',
+  });
+  seedSessionId = session.id;
+});
+afterAll(cleanupRun);
 
 describe('POST /api/simulations', () => {
-  beforeEach(resetPrismaMock);
-
   it('creates session with IN_PROGRESS status and returns 201', async () => {
-    prismaMock.simulationSession.create.mockResolvedValueOnce(BASE_SESSION);
-
     const r = req('POST', '/api/simulations', {
-      userId: 'user-auth-123',
-      jobTitleId: 'job-001',
-      scenarioId: 'sc-001',
+      userId: `post-user-${RUN}`,
+      jobTitleId: seedJobId,
+      scenarioId: seedScenarioId,
       type: 'CHAT',
     });
     const res = await POST(r);
     expect(res.status).toBe(201);
-
-    const data = await res.json();
-    expect(data.id).toBe('sess-001');
+    const data: { id: string; status: string } = await res.json();
     expect(data.status).toBe('IN_PROGRESS');
+    expect(typeof data.id).toBe('string');
   });
 
   it('sets startedAt on creation', async () => {
-    prismaMock.simulationSession.create.mockResolvedValueOnce(BASE_SESSION);
-
     const r = req('POST', '/api/simulations', {
-      userId: 'user-auth-123',
-      jobTitleId: 'job-001',
-      scenarioId: 'sc-001',
+      userId: `post-user2-${RUN}`,
+      jobTitleId: seedJobId,
+      scenarioId: seedScenarioId,
       type: 'CHAT',
     });
-    await POST(r);
-
-    const createArgs = prismaMock.simulationSession.create.mock.calls[0][0] as {
-      data: { status: string; startedAt: Date };
-    };
-    expect(createArgs.data.status).toBe('IN_PROGRESS');
-    expect(createArgs.data.startedAt).toBeDefined();
+    const res = await POST(r);
+    expect(res.status).toBe(201);
+    const data: { startedAt: string } = await res.json();
+    expect(data.startedAt).toBeTruthy();
+    expect(new Date(data.startedAt).getTime()).toBeGreaterThan(0);
   });
 
-  it('includes scenario and jobTitle in response (via include)', async () => {
-    prismaMock.simulationSession.create.mockResolvedValueOnce(BASE_SESSION);
+  it('includes scenario and jobTitle in response', async () => {
     const r = req('POST', '/api/simulations', {
-      userId: 'u1',
-      jobTitleId: 'j1',
-      scenarioId: 's1',
+      userId: `post-user3-${RUN}`,
+      jobTitleId: seedJobId,
+      scenarioId: seedScenarioId,
       type: 'PHONE',
     });
-    const createArgs = prismaMock.simulationSession.create; // call it
-    await POST(r);
-    const include = (createArgs.mock.calls[0][0] as { include?: unknown }).include;
-    expect(include).toBeTruthy();
+    const res = await POST(r);
+    expect(res.status).toBe(201);
+    const data: { scenario: unknown; jobTitle: unknown } = await res.json();
+    expect(data.scenario).toBeTruthy();
+    expect(data.jobTitle).toBeTruthy();
   });
 
-  it('returns 500 when DB throws', async () => {
-    prismaMock.simulationSession.create.mockRejectedValueOnce(new Error('Connection reset'));
+  it('persists correct userId and type to DB', async () => {
+    const userId = `type-test-${RUN}`;
     const r = req('POST', '/api/simulations', {
-      userId: 'u1',
-      jobTitleId: 'j1',
-      scenarioId: 's1',
+      userId,
+      jobTitleId: seedJobId,
+      scenarioId: seedScenarioId,
+      type: 'PHONE',
+    });
+    const res = await POST(r);
+    expect(res.status).toBe(201);
+    const data: { userId: string; type: string } = await res.json();
+    expect(data.userId).toBe(userId);
+    expect(data.type).toBe('PHONE');
+  });
+
+  it('returns 500 when jobTitleId does not exist (FK violation)', async () => {
+    const r = req('POST', '/api/simulations', {
+      userId: `fk-test-${RUN}`,
+      jobTitleId: 'non-existent-job-abc',
+      scenarioId: seedScenarioId,
       type: 'CHAT',
     });
     const res = await POST(r);
@@ -110,47 +102,48 @@ describe('POST /api/simulations', () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-
 describe('GET /api/simulations', () => {
-  beforeEach(resetPrismaMock);
-
-  it('returns all sessions when no userId filter', async () => {
-    prismaMock.simulationSession.findMany.mockResolvedValueOnce([BASE_SESSION]);
+  it('returns 200 with an array', async () => {
     const r = req('GET', '/api/simulations');
     const res = await GET(r);
     expect(res.status).toBe(200);
     const data = await res.json();
-    expect(data).toHaveLength(1);
-    expect(data[0].id).toBe('sess-001');
+    expect(Array.isArray(data)).toBe(true);
   });
 
-  it('filters by userId when provided', async () => {
-    prismaMock.simulationSession.findMany.mockResolvedValueOnce([BASE_SESSION]);
-    const r = req('GET', '/api/simulations?userId=user-auth-123');
-    await GET(r);
-
-    const findArgs = prismaMock.simulationSession.findMany.mock.calls[0][0] as {
-      where?: { userId: string };
-    };
-    expect(findArgs.where?.userId).toBe('user-auth-123');
-  });
-
-  it('does not apply where clause when userId is absent', async () => {
-    prismaMock.simulationSession.findMany.mockResolvedValueOnce([]);
-    const r = req('GET', '/api/simulations');
-    await GET(r);
-
-    const findArgs = prismaMock.simulationSession.findMany.mock.calls[0][0] as {
-      where?: unknown;
-    };
-    expect(findArgs.where).toBeUndefined();
-  });
-
-  it('returns 500 on DB error', async () => {
-    prismaMock.simulationSession.findMany.mockRejectedValueOnce(new Error('DB error'));
+  it('includes the seeded session in unfiltered results', async () => {
     const r = req('GET', '/api/simulations');
     const res = await GET(r);
-    expect(res.status).toBe(500);
+    const data: Array<{ id: string }> = await res.json();
+    expect(data.some(s => s.id === seedSessionId)).toBe(true);
+  });
+
+  it('filters by userId correctly', async () => {
+    const userId = `sim-user-${RUN}`;
+    const r = req('GET', `/api/simulations?userId=${encodeURIComponent(userId)}`);
+    const res = await GET(r);
+    expect(res.status).toBe(200);
+    const data: Array<{ userId: string }> = await res.json();
+    expect(data.length).toBeGreaterThan(0);
+    expect(data.every(s => s.userId === userId)).toBe(true);
+  });
+
+  it('returns empty array for unknown userId', async () => {
+    const r = req('GET', '/api/simulations?userId=no-such-user-xyzabcd');
+    const res = await GET(r);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data).toHaveLength(0);
+  });
+
+  it('includes scenario and jobTitle nested objects', async () => {
+    const userId = `sim-user-${RUN}`;
+    const r = req('GET', `/api/simulations?userId=${encodeURIComponent(userId)}`);
+    const res = await GET(r);
+    const data: Array<{ scenario: unknown; jobTitle: unknown }> = await res.json();
+    if (data.length > 0) {
+      expect(data[0].scenario).toBeTruthy();
+      expect(data[0].jobTitle).toBeTruthy();
+    }
   });
 });

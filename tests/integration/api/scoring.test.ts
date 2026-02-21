@@ -1,20 +1,19 @@
 /**
  * Integration tests for /api/scoring
- *
- * Bridges tested:
- *   1. POST saves scores and marks session COMPLETED — man successfully crossed, stamped
- *   2. POST saves multiple scores in a transaction    — every step stamped
- *   3. POST handles DB error gracefully (500)        — stamp machine broke, graceful fail
+ * Live Neon DB — no mocks.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { prismaMock, resetPrismaMock } from '../../mocks/prisma';
-
-vi.mock('@/lib/prisma', () => ({ default: prismaMock }));
-
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import {
+  RUN,
+  createJobTitle,
+  createScenario,
+  createSession,
+  createCriteria,
+  cleanupRun,
+  prisma,
+} from '../helpers/db';
 import { POST } from '@/app/api/scoring/route';
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 function req(body: unknown): Request {
   return new Request('http://localhost/api/scoring', {
@@ -24,68 +23,104 @@ function req(body: unknown): Request {
   });
 }
 
-const SCORES_INPUT = [
-  { criteriaId: 'crit-001', score: 8, feedback: 'Good empathy shown.' },
-  { criteriaId: 'crit-002', score: 9, feedback: 'Issue resolved on first call.' },
+let seedSessionId: string;
+let criteriaId1: string;
+let criteriaId2: string;
+
+beforeAll(async () => {
+  const job = await createJobTitle({ name: `${RUN} ScoreJob` });
+  const sc = await createScenario(job.id, { name: `${RUN} ScoreScenario` });
+  const session = await createSession(job.id, sc.id, { userId: `score-user-${RUN}` });
+  seedSessionId = session.id;
+
+  const [c1, c2] = await Promise.all([
+    createCriteria({ name: `${RUN} Empathy` }),
+    createCriteria({ name: `${RUN} Resolution` }),
+  ]);
+  criteriaId1 = c1.id;
+  criteriaId2 = c2.id;
+});
+afterAll(cleanupRun);
+
+const scoreInputs = () => [
+  { criteriaId: criteriaId1, score: 8, feedback: 'Good empathy.' },
+  { criteriaId: criteriaId2, score: 9, feedback: 'Resolved on first call.' },
 ];
 
-const CREATED_SCORES = SCORES_INPUT.map((s, i) => ({
-  id: `score-00${i + 1}`,
-  sessionId: 'sess-001',
-  ...s,
-  scoredAt: new Date(),
-}));
-
-// ─────────────────────────────────────────────────────────────────────────────
-
 describe('POST /api/scoring', () => {
-  beforeEach(resetPrismaMock);
-
-  it('saves scores via transaction and marks session COMPLETED (201)', async () => {
-    // $transaction returns array of created scores
-    prismaMock.$transaction.mockResolvedValueOnce(CREATED_SCORES);
-    prismaMock.simulationSession.update.mockResolvedValueOnce({ id: 'sess-001', status: 'COMPLETED' });
-
-    const r = req({ sessionId: 'sess-001', scores: SCORES_INPUT });
+  it('creates scores and marks session COMPLETED (201)', async () => {
+    const r = req({ sessionId: seedSessionId, scores: scoreInputs() });
     const res = await POST(r);
-
     expect(res.status).toBe(201);
-
-    // Verify session was marked COMPLETED
-    expect(prismaMock.simulationSession.update).toHaveBeenCalledWith({
-      where: { id: 'sess-001' },
-      data: { status: 'COMPLETED', endedAt: expect.any(Date) },
-    });
   });
 
-  it('uses a transaction for atomic score creation', async () => {
-    prismaMock.$transaction.mockResolvedValueOnce(CREATED_SCORES);
-    prismaMock.simulationSession.update.mockResolvedValueOnce({});
+  it('returns created scores in response body', async () => {
+    // Create a fresh session for this test
+    const job = await createJobTitle({ name: `${RUN} ScoreJob2` });
+    const sc = await createScenario(job.id, { name: `${RUN} ScoreScenario2` });
+    const session = await createSession(job.id, sc.id, { userId: `score-user2-${RUN}` });
 
-    const r = req({ sessionId: 'sess-001', scores: SCORES_INPUT });
+    const r = req({
+      sessionId: session.id,
+      scores: [{ criteriaId: criteriaId1, score: 7, feedback: 'Ok' }],
+    });
+    const res = await POST(r);
+    expect(res.status).toBe(201);
+    const data = await res.json();
+    expect(Array.isArray(data)).toBe(true);
+    expect(data[0]).toHaveProperty('id');
+    expect(data[0].score).toBe(7);
+  });
+
+  it('persists session status as COMPLETED in DB', async () => {
+    const job = await createJobTitle({ name: `${RUN} ScoreJob3` });
+    const sc = await createScenario(job.id, { name: `${RUN} ScoreScenario3` });
+    const session = await createSession(job.id, sc.id, { userId: `score-user3-${RUN}` });
+
+    const r = req({ sessionId: session.id, scores: scoreInputs() });
     await POST(r);
 
-    expect(prismaMock.$transaction).toHaveBeenCalledOnce();
+    const updated = await prisma.simulationSession.findUnique({ where: { id: session.id } });
+    expect(updated?.status).toBe('COMPLETED');
+    expect(updated?.endedAt).toBeTruthy();
   });
 
-  it('returns 500 when transaction fails', async () => {
-    prismaMock.$transaction.mockRejectedValueOnce(new Error('Transaction failed'));
-    const r = req({ sessionId: 'sess-001', scores: SCORES_INPUT });
+  it('sets endedAt on the session', async () => {
+    const job = await createJobTitle({ name: `${RUN} ScoreJob4` });
+    const sc = await createScenario(job.id, { name: `${RUN} ScoreScenario4` });
+    const session = await createSession(job.id, sc.id, { userId: `score-user4-${RUN}` });
+
+    const before = new Date();
+    const r = req({ sessionId: session.id, scores: scoreInputs() });
+    await POST(r);
+    const after = new Date();
+
+    const updated = await prisma.simulationSession.findUnique({ where: { id: session.id } });
+    const endedAt = updated?.endedAt ? new Date(updated.endedAt) : null;
+    expect(endedAt).not.toBeNull();
+    expect(endedAt!.getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000);
+    expect(endedAt!.getTime()).toBeLessThanOrEqual(after.getTime() + 1000);
+  });
+
+  it('returns 500 when sessionId does not exist (FK violation)', async () => {
+    const r = req({
+      sessionId: 'non-existent-session-xyz',
+      scores: [{ criteriaId: criteriaId1, score: 5, feedback: '' }],
+    });
     const res = await POST(r);
     expect(res.status).toBe(500);
   });
 
-  it('returns created scores in response body', async () => {
-    prismaMock.$transaction.mockResolvedValueOnce(CREATED_SCORES);
-    prismaMock.simulationSession.update.mockResolvedValueOnce({});
+  it('returns 500 when criteriaId does not exist (FK violation)', async () => {
+    const job = await createJobTitle({ name: `${RUN} ScoreJob5` });
+    const sc = await createScenario(job.id, { name: `${RUN} ScoreScenario5` });
+    const session = await createSession(job.id, sc.id, { userId: `score-user5-${RUN}` });
 
-    const r = req({ sessionId: 'sess-001', scores: SCORES_INPUT });
+    const r = req({
+      sessionId: session.id,
+      scores: [{ criteriaId: 'non-existent-criteria-abc', score: 5, feedback: '' }],
+    });
     const res = await POST(r);
-    const data = await res.json();
-
-    expect(Array.isArray(data)).toBe(true);
-    expect(data).toHaveLength(2);
-    expect(data[0].score).toBe(8);
-    expect(data[1].score).toBe(9);
+    expect(res.status).toBe(500);
   });
 });
