@@ -26,7 +26,7 @@ export async function GET() {
   // 2. Test Prisma client init
   try {
     const { PrismaNeonHTTP } = await import('@prisma/adapter-neon');
-    const { PrismaClient } = await import('@prisma/client');
+    const { PrismaClient } = await import('@prisma/client/wasm');
     const url = process.env.DATABASE_URL?.replace(/\r/g, '');
     if (!url) throw new Error('DATABASE_URL missing');
     const adapter = new PrismaNeonHTTP(url, {});

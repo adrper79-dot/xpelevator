@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client/wasm';
 import { PrismaNeonHTTP } from '@prisma/adapter-neon';
 
 function createPrismaClient() {
