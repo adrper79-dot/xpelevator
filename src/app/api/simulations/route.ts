@@ -25,8 +25,9 @@ export async function POST(request: Request) {
     });
     return NextResponse.json(session, { status: 201 });
   } catch (error) {
-    console.error('Failed to create simulation:', error);
-    return NextResponse.json({ error: 'Failed to create simulation' }, { status: 500 });
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error('Failed to create simulation:', msg);
+    return NextResponse.json({ error: 'Failed to create simulation', detail: msg }, { status: 500 });
   }
 }
 
@@ -47,7 +48,8 @@ export async function GET(request: Request) {
     });
     return NextResponse.json(sessions);
   } catch (error) {
-    console.error('Failed to fetch simulations:', error);
-    return NextResponse.json({ error: 'Failed to fetch simulations' }, { status: 500 });
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error('Failed to fetch simulations:', msg);
+    return NextResponse.json({ error: 'Failed to fetch simulations', detail: msg }, { status: 500 });
   }
 }
