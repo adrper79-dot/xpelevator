@@ -7,8 +7,8 @@ compatibility_date = "2025-01-01"
 # nodejs_compat is required for Next.js edge runtime + Neon serverless driver
 compatibility_flags = ["nodejs_compat"]
 
-# Output directory produced by @cloudflare/next-on-pages
-pages_build_output_dir = ".vercel/output/static"
+# Output directory produced by @opennextjs/cloudflare
+pages_build_output_dir = ".open-next/assets"
 
 # ── Environment variables ────────────────────────────────────────────────────
 # Set these in the Cloudflare Pages dashboard (Settings → Environment variables)

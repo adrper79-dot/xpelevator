@@ -98,6 +98,7 @@ export default function SimulatePage() {
         </div>
 
         <h1 className="text-3xl font-bold mb-8">Start a Simulation</h1>
+        <p className="text-sm text-slate-400 mb-4">Last updated: {new Date().toISOString()}</p>
 
         {loading ? (
           <p className="text-slate-400">Loading job titles...</p>

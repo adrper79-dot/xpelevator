@@ -862,7 +862,52 @@ export default function AdminPage() {
         {activeTab === 'scenarios' && <ScenariosTab />}
         {activeTab === 'job-criteria' && <JobCriteriaTab />}
         {activeTab === 'orgs' && <OrgsTab />}
-      </div>
-    </div>
-  );
-}
+
+        {/* Debug Tools */}
+        <div className="mt-8 p-6 bg-slate-800/50 rounded-xl border border-slate-700">
+          <h3 className="text-lg font-semibold mb-4 text-yellow-400">🔧 Debug Tools</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <button
+              onClick={async () => {
+                try {
+                  const res = await fetch('/api/test-groq');
+                  const data = await res.json();
+                  alert(data.success ? `✅ GROQ API Working: ${data.response}` : `❌ GROQ API Failed: ${data.error}`);
+                } catch (err) {
+                  alert(`❌ Test Failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+                }
+              }}
+              className="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            >
+              Test GROQ API
+            </button>
+            <button
+              onClick={() => {
+                const logs = [];
+                const originalLog = console.log;
+                const originalError = console.error;
+
+                console.log = (...args) => {
+                  logs.push(['LOG', ...args]);
+                  originalLog(...args);
+                };
+
+                console.error = (...args) => {
+                  logs.push(['ERROR', ...args]);
+                  originalError(...args);
+                };
+
+                setTimeout(() => {
+                  console.log = originalLog;
+                  console.error = originalError;
+                  alert(`Captured ${logs.length} console messages. Check browser console for details.`);
+                }, 10000);
+
+                alert('Console logging enabled for 10 seconds. Try using the chat now.');
+              }}
+              className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            >
+              Enable Debug Logging
+            </button>
+          </div>
+        </div>

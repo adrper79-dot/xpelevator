@@ -55,12 +55,15 @@ export default function SimulationPage() {
 
   // ── Load session ────────────────────────────────────────────────────────────
   useEffect(() => {
+    console.log('[SimulationPage] Loading session:', sessionId);
     fetch(`/api/chat?sessionId=${sessionId}`)
       .then(res => {
+        console.log('[SimulationPage] Session fetch response:', res.status);
         if (!res.ok) throw new Error('Session not found');
         return res.json();
       })
       .then((data: Session) => {
+        console.log('[SimulationPage] Session loaded:', data);
         setSession(data);
         setMessages(data.messages);
         if (data.status === 'COMPLETED' || data.status === 'CANCELLED') {
@@ -69,6 +72,7 @@ export default function SimulationPage() {
         setLoading(false);
       })
       .catch(err => {
+        console.error('[SimulationPage] Session load error:', err);
         setError(err.message);
         setLoading(false);
       });
@@ -90,8 +94,10 @@ export default function SimulationPage() {
   // ── Send Message ────────────────────────────────────────────────────────────
   async function sendMessage(content: string, silent = false) {
     if (sending || !content.trim()) return;
+    console.log('[SimulationPage] Sending message:', content.substring(0, 50) + '...');
     setSending(true);
     setStreamingText('');
+    setError(null);
 
     // Add agent message to local state (unless it's the silent [START])
     if (!silent) {
@@ -106,20 +112,27 @@ export default function SimulationPage() {
     setInput('');
 
     try {
+      console.log('[SimulationPage] Making API request to /api/chat');
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId, content }),
       });
 
+      console.log('[SimulationPage] API response status:', res.status);
+      console.log('[SimulationPage] Response headers:', Object.fromEntries(res.headers.entries()));
+
       if (!res.ok) {
         const errData = await res.json();
+        console.error('[SimulationPage] API error response:', errData);
         throw new Error(errData.error ?? 'Failed to send message');
       }
 
       const contentType = res.headers.get('content-type') ?? '';
+      console.log('[SimulationPage] Content-Type:', contentType);
 
       if (contentType.includes('text/event-stream')) {
+        console.log('[SimulationPage] Starting SSE stream processing');
         // ── SSE streaming ──────────────────────────────────────────────────────
         const reader = res.body!.getReader();
         const decoder = new TextDecoder();
@@ -127,7 +140,10 @@ export default function SimulationPage() {
 
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done) {
+            console.log('[SimulationPage] SSE stream ended');
+            break;
+          }
 
           const text = decoder.decode(value);
           const lines = text.split('\n').filter(l => l.startsWith('data:'));
@@ -135,6 +151,7 @@ export default function SimulationPage() {
           for (const line of lines) {
             try {
               const data = JSON.parse(line.slice(5).trim());
+              console.log('[SimulationPage] SSE event:', data.type, data.content?.substring(0, 50));
 
               if (data.type === 'chunk') {
                 accumulated += data.content;
@@ -168,12 +185,14 @@ export default function SimulationPage() {
               } else if (data.type === 'error') {
                 throw new Error(data.message);
               }
-            } catch {
+            } catch (parseErr) {
+              console.warn('[SimulationPage] Failed to parse SSE line:', line, parseErr);
               // skip malformed SSE line
             }
           }
         }
       } else {
+        console.log('[SimulationPage] Non-streaming response');
         // ── Non-streaming (end session response) ───────────────────────────────
         const data = await res.json();
         if (data.ended && data.session) {
@@ -183,6 +202,7 @@ export default function SimulationPage() {
         }
       }
     } catch (err: unknown) {
+      console.error('[SimulationPage] Send message error:', err);
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setSending(false);
@@ -532,7 +552,17 @@ export default function SimulationPage() {
         <div className="max-w-3xl mx-auto space-y-4">
           {messages.length === 0 && !streamingText && !sending && (
             <div className="text-center text-slate-500 py-8">
-              Starting conversation...
+              {loading ? (
+                <div>
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                  <p>Loading conversation...</p>
+                </div>
+              ) : (
+                <div>
+                  <p className="mb-2">Starting conversation...</p>
+                  <p className="text-xs text-slate-600">If this takes too long, check the browser console for errors.</p>
+                </div>
+              )}
             </div>
           )}
 

@@ -11,14 +11,19 @@ import { buildSessionSystemPrompt, streamNextCustomerMessage, scoreSession } fro
 
 export async function POST(request: Request) {
   try {
+    console.log('[Chat API] POST request received');
     const body = await request.json();
     const { sessionId, content } = body as { sessionId: string; content: string };
 
+    console.log('[Chat API] Request body:', { sessionId: sessionId?.substring(0, 8), content: content?.substring(0, 50) });
+
     if (!sessionId || !content?.trim()) {
+      console.error('[Chat API] Missing required fields');
       return NextResponse.json({ error: 'sessionId and content are required' }, { status: 400 });
     }
 
     // ── 1. Load session ───────────────────────────────────────────────────────
+    console.log('[Chat API] Loading session:', sessionId);
     const session = await prisma.simulationSession.findUnique({
       where: { id: sessionId },
       include: {
@@ -36,9 +41,14 @@ export async function POST(request: Request) {
     });
 
     if (!session) {
+      console.error('[Chat API] Session not found:', sessionId);
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
+
+    console.log('[Chat API] Session loaded:', { status: session.status, type: session.type, scenario: session.scenario.name });
+
     if (session.status === 'COMPLETED' || session.status === 'CANCELLED') {
+      console.error('[Chat API] Session already closed');
       return NextResponse.json({ error: 'Session is already closed' }, { status: 400 });
     }
 

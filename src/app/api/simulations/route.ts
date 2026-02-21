@@ -9,16 +9,17 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { userId, jobTitleId, scenarioId, type } = body;
 
-    // Use raw SQL to insert
-    const result = await prisma.$queryRaw`
+    // Use raw SQL to insert - generate UUID client-side for better compatibility
+    const sessionId = crypto.randomUUID();
+    
+    await prisma.$queryRaw`
       INSERT INTO simulation_sessions (id, user_id, job_title_id, scenario_id, type, status, started_at, created_at)
-      VALUES (gen_random_uuid(), ${userId}, ${jobTitleId}, ${scenarioId}, ${type}, 'IN_PROGRESS', NOW(), NOW())
-      RETURNING id
+      VALUES (${sessionId}, ${userId}, ${jobTitleId}, ${scenarioId}, ${type}, 'IN_PROGRESS', NOW(), NOW())
     `;
 
     // Fetch the created session
     const session = await prisma.simulationSession.findUnique({
-      where: { id: result[0].id },
+      where: { id: sessionId },
       include: { scenario: true, jobTitle: true },
     });
     return NextResponse.json(session, { status: 201 });

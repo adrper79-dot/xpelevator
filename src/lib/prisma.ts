@@ -6,6 +6,9 @@ function createPrismaClient() {
   const url = process.env.DATABASE_URL?.replace(/\r/g, '');
   if (!url) throw new Error('DATABASE_URL is not set');
 
+  console.log('DATABASE_URL available:', !!url);
+  console.log('DATABASE_URL starts with:', url.substring(0, 20) + '...');
+
   // PrismaNeonHTTP uses the Neon HTTP API — works in both Node.js and CF Workers
   const adapter = new PrismaNeonHTTP(url, {});
   return new PrismaClient({ adapter });
