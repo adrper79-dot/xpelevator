@@ -9,7 +9,7 @@
     "lint": "eslint",
     "seed": "tsx prisma/seed.ts",
     "pages:build": "npx @opennextjs/cloudflare build",
-    "bundle:worker": "node -e \"const fs=require('fs'); fs.writeFileSync('.open-next/assets/_worker.js', fs.readFileSync('.open-next/worker.js','utf8').replace(/\\\"\\.\\\//g,'\\\"../')\" ",
+    "bundle:worker": "node scripts/bundle-worker.js",
     "preview": "npm run pages:build && npm run bundle:worker && npx wrangler pages dev .open-next/assets",
     "deploy": "npm run pages:build && npm run bundle:worker && npx wrangler pages deploy .open-next/assets --project-name xpelevator --branch=main",
     "test": "vitest run",
