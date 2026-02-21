@@ -5,11 +5,6 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
-  // Disable experimental features that might cause issues
-  experimental: {
-    // Disable turbopack for production builds
-    turbopack: false,
-  },
 };
 
 export default nextConfig;

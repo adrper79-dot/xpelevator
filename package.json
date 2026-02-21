@@ -10,7 +10,7 @@
     "seed": "tsx prisma/seed.ts",
     "pages:build": "npx @opennextjs/cloudflare build",
     "preview": "npm run pages:build && npx wrangler pages dev",
-    "deploy": "npm run pages:build && npx wrangler pages deploy .open-next",
+    "deploy": "npm run pages:build && npx wrangler pages deploy .open-next/assets",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:unit": "vitest run tests/unit",
