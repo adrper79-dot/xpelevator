@@ -1,30 +1,27 @@
 import Groq from 'groq-sdk';
-import './env'; // validate required environment variables on startup
+import type { ScenarioScript, ScoreResult } from '@/types';
 
-// ─── Client ──────────────────────────────────────────────────────────────────
+// Re-export so callers that import from '@/lib/ai' still get these types
+export type { ScenarioScript, ScoreResult };
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+// ─── Client (lazy: avoids module-load crash when GROQ_API_KEY is absent) ─────
+
+let _groq: Groq | null = null;
+
+export function getGroq(): Groq {
+  if (!_groq) {
+    const apiKey = process.env.GROQ_API_KEY?.replace(/\r/g, '');
+    if (!apiKey) throw new Error('GROQ_API_KEY environment variable is not set');
+    _groq = new Groq({ apiKey });
+  }
+  return _groq;
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type ChatMessage = {
   role: 'system' | 'user' | 'assistant';
   content: string;
-};
-
-export type ScenarioScript = {
-  customerPersona: string;
-  customerObjective: string;
-  difficulty: 'easy' | 'medium' | 'hard';
-  hints?: string[];
-  maxTurns?: number;
-};
-
-export type ScoreResult = {
-  criteriaId: string;
-  criteriaName: string;
-  score: number;
-  justification: string;
 };
 
 // ─── System Prompts ──────────────────────────────────────────────────────────
@@ -68,7 +65,7 @@ Begin the conversation by describing your issue or reason for calling.`;
  * Generate text (non-streaming) from the Groq API.
  */
 export async function generateResponse(messages: ChatMessage[]): Promise<string> {
-  const completion = await groq.chat.completions.create({
+  const completion = await getGroq().chat.completions.create({
     model: 'llama-3.3-70b-versatile',
     messages,
     temperature: 0.75,
@@ -83,13 +80,8 @@ export async function generateResponse(messages: ChatMessage[]): Promise<string>
 export async function* streamResponse(
   messages: ChatMessage[]
 ): AsyncGenerator<string> {
-  console.log('[AI] Calling GROQ API with model: llama-3.3-70b-versatile');
-  console.log('[AI] Messages count:', messages.length);
-  console.log('[AI] First message role:', messages[0]?.role);
-  console.log('[AI] First message content preview:', messages[0]?.content?.substring(0, 100));
-
   try {
-    const stream = await groq.chat.completions.create({
+    const stream = await getGroq().chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       messages,
       temperature: 0.75,
@@ -97,47 +89,21 @@ export async function* streamResponse(
       stream: true,
     });
 
-    console.log('[AI] GROQ API call successful, starting stream');
-
-    let chunkCount = 0;
     let hasYielded = false;
-
     for await (const chunk of stream) {
       const delta = chunk.choices[0]?.delta?.content;
       if (delta) {
-        chunkCount++;
         hasYielded = true;
-        if (chunkCount <= 5) { // Log first few chunks
-          console.log('[AI] Received chunk:', chunkCount, delta);
-        }
         yield delta;
       }
     }
 
-    console.log('[AI] Stream completed, total chunks:', chunkCount);
-
-    // If no content was yielded, provide a fallback response
     if (!hasYielded) {
-      console.warn('[AI] No content yielded from GROQ API, using fallback');
-      const fallbackResponse = "I'm sorry, I'm having trouble responding right now. Could you please try again?";
-      for (const char of fallbackResponse) {
-        yield char;
-        // Small delay to simulate streaming
-        await new Promise(resolve => setTimeout(resolve, 10));
-      }
+      yield "I'm sorry, I'm having trouble responding right now. Could you please try again?";
     }
-
   } catch (error) {
-    console.error('[AI] GROQ API error:', error);
-
-    // Provide a fallback response instead of throwing
-    console.log('[AI] Using fallback response due to API error');
-    const fallbackResponse = "I apologize, but I'm experiencing technical difficulties. As a customer, I'm having trouble with my account access. Could you help me resolve this issue?";
-    for (const char of fallbackResponse) {
-      yield char;
-      // Small delay to simulate streaming
-      await new Promise(resolve => setTimeout(resolve, 10));
-    }
+    console.error('[AI] Groq API error:', error);
+    yield "I apologize, but I'm experiencing technical difficulties. As a customer, I'm having trouble with my account. Could you help me?";
   }
 }
 
@@ -195,10 +161,6 @@ export async function* streamNextCustomerMessage(
   systemPrompt: string,
   conversationHistory: Array<{ role: 'CUSTOMER' | 'AGENT'; content: string }>
 ): AsyncGenerator<string> {
-  console.log('[AI] Starting streamNextCustomerMessage');
-  console.log('[AI] System prompt length:', systemPrompt.length);
-  console.log('[AI] Conversation history length:', conversationHistory.length);
-
   const messages: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
     ...conversationHistory.map(m => ({
@@ -206,15 +168,7 @@ export async function* streamNextCustomerMessage(
       content: m.content,
     })),
   ];
-
-  console.log('[AI] Prepared messages for API:', messages.length);
-
-  try {
-    yield* streamResponse(messages);
-  } catch (error) {
-    console.error('[AI] Error in streamNextCustomerMessage:', error);
-    throw error;
-  }
+  yield* streamResponse(messages);
 }
 
 // ─── Auto-Scoring ─────────────────────────────────────────────────────────────
@@ -260,7 +214,7 @@ Rules:
 Respond ONLY with a valid JSON array, no extra text:
 [{"criteriaIndex": 1, "score": 7, "justification": "..."}]`;
 
-  const completion = await groq.chat.completions.create({
+  const completion = await getGroq().chat.completions.create({
     model: 'llama-3.1-8b-instant',
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.1,

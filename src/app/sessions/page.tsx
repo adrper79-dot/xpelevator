@@ -2,24 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-
-interface Score {
-  score: number;
-  feedback: string | null;
-  criteria: { name: string; weight: number };
-}
-
-interface Session {
-  id: string;
-  type: 'PHONE' | 'CHAT';
-  status: string;
-  startedAt: string | null;
-  endedAt: string | null;
-  createdAt: string;
-  jobTitle: { name: string };
-  scenario: { name: string };
-  scores: Score[];
-}
+import type { SimulationSession as Session, ScoreItem } from '@/types';
 
 export default function SessionsPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -53,7 +36,7 @@ export default function SessionsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const avgScore = (scores: Score[]) => {
+  const avgScore = (scores: ScoreItem[]) => {
     if (!scores.length) return null;
     const total = scores.reduce((sum, s) => sum + s.score, 0);
     return (total / scores.length).toFixed(1);

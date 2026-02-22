@@ -16,9 +16,8 @@
  *   - Verify Telnyx webhook signature (TELNYX_PUBLIC_KEY env var)
  *   - Add noise/retry handling for failed gathers
  *   - Handle call.machine.detection.ended (voicemail detection)
- */
-import { NextResponse } from 'next/server';
-import { Groq } from 'groq-sdk';
+ */import { NextResponse } from 'next/server';
+import { getGroq } from '@/lib/ai';
 import prisma from '@/lib/prisma';
 import {
   callSpeak,
@@ -27,9 +26,6 @@ import {
   decodeClientState,
   encodeClientState,
 } from '@/lib/telnyx';
-
-
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY! });
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -95,7 +91,7 @@ export async function POST(request: Request) {
         const difficulty = (script.difficulty as string | undefined) ?? 'medium';
 
         // Generate AI opening line via Groq
-        const opening = await groq.chat.completions.create({
+        const opening = await getGroq().chat.completions.create({
           model: 'llama3-70b-8192',
           messages: [
             {
@@ -190,7 +186,7 @@ export async function POST(request: Request) {
           content: m.content,
         }));
 
-        const aiReply = await groq.chat.completions.create({
+        const aiReply = await getGroq().chat.completions.create({
           model: 'llama3-70b-8192',
           messages: [
             { role: 'system', content: buildSystemPrompt(persona, objective, difficulty) },

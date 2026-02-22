@@ -3,30 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-
-interface Message {
-  id: string;
-  role: 'CUSTOMER' | 'AGENT';
-  content: string;
-  timestamp: string;
-}
-
-interface ScoreItem {
-  id: string;
-  score: number;
-  feedback: string | null;
-  criteria: { name: string; description: string | null };
-}
-
-interface Session {
-  id: string;
-  status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
-  type: 'PHONE' | 'CHAT';
-  messages: Message[];
-  scores: ScoreItem[];
-  scenario: { name: string; description: string | null; type: string };
-  jobTitle: { name: string };
-}
+import type { Message, ScoreItem, SimulationSession as Session } from '@/types';
 
 export default function SimulationPage() {
   const params = useParams();

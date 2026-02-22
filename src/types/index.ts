@@ -59,7 +59,7 @@ export interface SimulationSession {
   jobTitle: { name: string };
 }
 
-// ─── AI / Script Types (re-exported from lib/ai.ts) ─────────────────────────
+// ─── AI / Script Types (canonical — imported by lib/ai.ts and UI components) ──
 
 export type ScenarioScript = {
   customerPersona: string;

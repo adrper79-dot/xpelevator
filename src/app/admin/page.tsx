@@ -2,33 +2,10 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
+import type { Criteria, JobTitle, Scenario } from '@/types';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
-
-interface Criteria {
-  id: string;
-  name: string;
-  description: string | null;
-  weight: number;
-  category: string | null;
-  active: boolean;
-}
-
-interface JobTitle {
-  id: string;
-  name: string;
-  description: string | null;
-}
-
-interface Scenario {
-  id: string;
-  name: string;
-  type: 'PHONE' | 'CHAT';
-  description: string | null;
-  script: Record<string, unknown>;
-  jobTitleId: string;
-  jobTitle?: { name: string };
-}
+// (Criteria, JobTitle, Scenario imported from @/types)
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -319,7 +296,7 @@ function ScenariosTab() {
     setEditingId(s.id);
     setForm({
       name: s.name,
-      jobTitleId: s.jobTitleId,
+      jobTitleId: s.jobTitleId ?? '',
       type: s.type,
       description: s.description || '',
       script: JSON.stringify(s.script, null, 2),
@@ -408,7 +385,7 @@ function ScenariosTab() {
                     {s.type}
                   </span>
                 </div>
-                <div className="text-sm text-slate-400">{jobName(s.jobTitleId)}</div>
+                <div className="text-sm text-slate-400">{jobName(s.jobTitleId ?? '')}</div>
                 {s.description && <div className="text-xs text-slate-500 mt-0.5 truncate">{s.description}</div>}
               </div>
               <div className="flex gap-3 shrink-0">

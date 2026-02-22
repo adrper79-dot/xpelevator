@@ -4,20 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-
-interface Scenario {
-  id: string;
-  name: string;
-  description: string | null;
-  type: 'PHONE' | 'CHAT';
-}
-
-interface JobTitle {
-  id: string;
-  name: string;
-  description: string | null;
-  scenarios: Scenario[];
-}
+import type { Scenario, JobTitle } from '@/types';
 
 export default function SimulatePage() {
   const router = useRouter();
@@ -142,7 +129,7 @@ export default function SimulatePage() {
                       <p className="text-slate-400 text-sm">{job.description}</p>
                     )}
                     <p className="text-slate-500 text-xs mt-2">
-                      {job.scenarios.length} scenario{job.scenarios.length !== 1 ? 's' : ''}
+                      {(job.scenarios ?? []).length} scenario{(job.scenarios ?? []).length !== 1 ? 's' : ''}
                     </p>
                   </button>
                 ))}
@@ -160,13 +147,13 @@ export default function SimulatePage() {
                   <div className="mb-4 text-red-400 text-sm text-center">{startError}</div>
                 )}
 
-                {selectedJob.scenarios.length === 0 ? (
+                {(selectedJob.scenarios ?? []).length === 0 ? (
                   <p className="text-slate-500">
                     No scenarios available for this job title.
                   </p>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {selectedJob.scenarios.map(scenario => (
+                    {(selectedJob.scenarios ?? []).map(scenario => (
                       <div
                         key={scenario.id}
                         className="p-6 rounded-xl bg-slate-800/50 border border-slate-700"
