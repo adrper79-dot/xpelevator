@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import MessageBubble from './MessageBubble';
 import type { ChatSessionState } from '@/hooks/useChatSession';
+import type { Message } from '@/types';
 
 export type PhoneInterfaceProps = Pick<
   ChatSessionState,
@@ -27,37 +28,71 @@ export default function PhoneInterface({
   const [callStatus, setCallStatus] = useState<CallStatus>('idle');
   const [callError, setCallError] = useState<string | null>(null);
   const [callSeconds, setCallSeconds] = useState(0);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // BL-054: SSE reader ref replaces setInterval poll ref
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
 
   // Sync messages from parent (before call starts)
   useEffect(() => {
     setMessages(initialMessages);
   }, [initialMessages]);
 
-  const stopPolling = useCallback(() => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
+  const stopStreaming = useCallback(() => {
+    readerRef.current?.cancel().catch(() => {});
+    readerRef.current = null;
   }, []);
 
-  // Live transcript poll while call is connected
-  const startCallPolling = useCallback(() => {
-    pollRef.current = setInterval(async () => {
-      try {
-        const data = await fetch(`/api/chat?sessionId=${sessionId}`).then(r => r.json());
-        setMessages(data.messages);
-        setSession(data);
-        if (data.status === 'COMPLETED' || data.status === 'CANCELLED') {
-          setCallStatus('ended');
-          stopPolling();
-          onEnded();
+  // BL-054: Start SSE-based live transcript stream (replaces 3-second poll)
+  const startCallStreaming = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/chat?sessionId=${sessionId}&stream=true`);
+      if (!res.ok || !res.body) return;
+
+      const reader = res.body.getReader();
+      readerRef.current = reader;
+      const decoder = new TextDecoder();
+
+      (async () => {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const text = decoder.decode(value, { stream: true });
+            const lines = text.split('\n').filter(l => l.startsWith('data:'));
+
+            for (const line of lines) {
+              try {
+                const data = JSON.parse(line.slice(5).trim()) as {
+                  type: string;
+                  messages?: Message[];
+                  status?: string;
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  session?: any;
+                };
+
+                if (data.type === 'transcript' && data.messages) {
+                  setMessages(data.messages);
+                } else if (data.type === 'ended' && data.session) {
+                  setMessages(data.session.messages);
+                  setSession(data.session);
+                  setCallStatus('ended');
+                  stopStreaming();
+                  onEnded();
+                  return;
+                }
+              } catch {
+                // skip malformed SSE lines
+              }
+            }
+          }
+        } catch {
+          // stream cancelled or connection lost
         }
-      } catch {
-        // ignore transient network errors
-      }
-    }, 3_000);
-  }, [sessionId, setSession, stopPolling, onEnded]);
+      })();
+    } catch (err) {
+      console.error('[PhoneInterface] SSE stream error:', err);
+    }
+  }, [sessionId, setSession, stopStreaming, onEnded]);
 
   // Call timer
   useEffect(() => {
@@ -67,7 +102,7 @@ export default function PhoneInterface({
   }, [callStatus]);
 
   // Cleanup on unmount
-  useEffect(() => () => stopPolling(), [stopPolling]);
+  useEffect(() => () => stopStreaming(), [stopStreaming]);
 
   const initiateCall = async () => {
     if (!phoneNumber.trim()) return;
@@ -84,7 +119,7 @@ export default function PhoneInterface({
         throw new Error(err.error ?? 'Call initiation failed');
       }
       setCallStatus('connected');
-      startCallPolling();
+      startCallStreaming();
     } catch (err) {
       setCallError(err instanceof Error ? err.message : 'Failed to start call');
       setCallStatus('idle');
@@ -92,7 +127,7 @@ export default function PhoneInterface({
   };
 
   const hangUp = async () => {
-    stopPolling();
+    stopStreaming();
     setCallStatus('ended');
     await sendMessage('[END]');
     const data = await fetch(`/api/chat?sessionId=${sessionId}`).then(r => r.json());
@@ -172,7 +207,7 @@ export default function PhoneInterface({
               <div className="text-center mb-8">
                 <div className="text-4xl mb-2">📞</div>
                 <p className="text-green-400 font-semibold">Call in progress</p>
-                <p className="text-slate-400 text-sm">Transcript updates every 3 seconds</p>
+                <p className="text-slate-400 text-sm">Live transcript (updates as you speak)</p>
               </div>
               <div className="space-y-4 mb-8">
                 {messages.length === 0 && (

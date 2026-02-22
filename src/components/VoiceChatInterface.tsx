@@ -134,6 +134,13 @@ export default function VoiceChatInterface({
   const handsFreeRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // ── BL-072: text fallback for unsupported browsers ─────────────────────────
+  const [textInput, setTextInput] = useState('');
+  // ── BL-073: TTS voice selection ────────────────────────────────────────────
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedVoiceName, setSelectedVoiceName] = useState<string | null>(null);
+  const [showVoicePicker, setShowVoicePicker] = useState(false);
+
   // Keep ref in sync with state (ref is used inside SpeechRecognition callbacks)
   useEffect(() => {
     phaseRef.current = phase;
@@ -150,6 +157,28 @@ export default function VoiceChatInterface({
     const hasTts = !!window.speechSynthesis;
     if (!hasStt || !hasTts) setPhase('unsupported');
   }, []);
+
+  // ── BL-073: Load available TTS voices + auto-select from scenario script ───
+  useEffect(() => {
+    if (!window.speechSynthesis) return;
+    const loadVoices = () => {
+      const voices = window.speechSynthesis.getVoices().filter(v => v.lang.startsWith('en'));
+      setAvailableVoices(voices);
+      // Auto-select voice specified in the scenario script (first load only)
+      if (voices.length > 0) {
+        const scriptVoiceName = (session?.scenario?.script as Record<string, unknown> | undefined)?.ttsVoiceName as string | undefined;
+        if (scriptVoiceName) {
+          const match = voices.find(v => v.name === scriptVoiceName);
+          if (match) setSelectedVoiceName(prev => prev ?? match.name);
+        }
+      }
+    };
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+    return () => {
+      if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = null;
+    };
+  }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-scroll ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -169,29 +198,28 @@ export default function VoiceChatInterface({
     utter.pitch = 1.0;
     utter.volume = 1.0;
 
-    // Prefer a natural-sounding English voice if available
-    const pickVoice = () => {
-      const voices = synth.getVoices();
-      return (
-        voices.find(
-          v =>
-            v.lang.startsWith('en') &&
-            (v.name.includes('Natural') || v.name.includes('Neural') || v.name.includes('Online'))
-        ) ??
-        voices.find(v => v.lang.startsWith('en-US')) ??
-        voices.find(v => v.lang.startsWith('en')) ??
-        null
-      );
+    // Use the user-/script-selected voice, falling back to best available English voice
+    const pickBest = (voiceList: SpeechSynthesisVoice[]) =>
+      voiceList.find(v => v.lang.startsWith('en') &&
+        (v.name.includes('Natural') || v.name.includes('Neural') || v.name.includes('Online'))) ??
+      voiceList.find(v => v.lang.startsWith('en-US')) ??
+      voiceList.find(v => v.lang.startsWith('en')) ??
+      null;
+
+    const applyVoice = (voiceList: SpeechSynthesisVoice[]) => {
+      const voice = selectedVoiceName
+        ? (voiceList.find(v => v.name === selectedVoiceName) ?? pickBest(voiceList))
+        : pickBest(voiceList);
+      if (voice) utter.voice = voice;
     };
 
-    const voice = pickVoice();
-    if (voice) {
-      utter.voice = voice;
-    } else if (synth.getVoices().length === 0) {
+    const currentVoices = synth.getVoices();
+    if (currentVoices.length > 0) {
+      applyVoice(currentVoices);
+    } else {
       // Voices may not be loaded yet — wait for them
       synth.onvoiceschanged = () => {
-        const v = pickVoice();
-        if (v) utter.voice = v;
+        applyVoice(synth.getVoices());
         synth.onvoiceschanged = null;
       };
     }
@@ -278,6 +306,14 @@ export default function VoiceChatInterface({
   const stopListening = useCallback(() => {
     recognitionRef.current?.stop();
   }, []);
+
+  // ── BL-072: Text submit for unsupported-mode fallback ───────────────────────
+  const handleTextSubmit = useCallback(() => {
+    const msg = textInput.trim();
+    if (!msg || sending) return;
+    setTextInput('');
+    sendMessage(msg);
+  }, [textInput, sending, sendMessage]);
   // ── Hands-free: auto-start listening after AI finishes speaking ───────────
   // Placed after startListening/stopListening to satisfy the no-use-before-
   // declare rule. A short delay lets the TTS audio fully complete.
@@ -294,7 +330,7 @@ export default function VoiceChatInterface({
     listening: interimText ? `"${interimText}"` : 'Listening… speak clearly',
     processing: 'Sending your response…',
     ended: 'Session ended',
-    unsupported: 'Voice not supported — use Chrome or Edge',
+    unsupported: 'Voice not available in this browser — reply by text below',
   };
 
   const isMicActive = phase === 'listening';
@@ -381,41 +417,108 @@ export default function VoiceChatInterface({
             {statusMessages[phase]}
           </p>
 
-          {/* Controls row */}
-          <div className="flex items-center justify-center gap-10">
-            <Waveform active={isAiTalking} color={waveColor} />
-
-            {/* Microphone button */}
-            <button
-              onMouseDown={startListening}
-              onMouseUp={stopListening}
-              onTouchStart={e => { e.preventDefault(); startListening(); }}
-              onTouchEnd={e => { e.preventDefault(); stopListening(); }}
-              disabled={phase !== 'idle' || sending}
-              aria-label={
-                isMicActive ? 'Recording — release to send' : 'Hold to speak'
-              }
-              className={`
-                relative w-24 h-24 rounded-full flex items-center justify-center text-4xl
-                border-4 transition-all duration-200 shadow-2xl select-none
-                ${
-                  isMicActive
-                    ? 'bg-red-600 border-red-400 scale-110 shadow-red-900/60'
-                    : canSpeak
-                    ? 'bg-purple-700 border-purple-500 hover:bg-purple-600 hover:scale-105 active:scale-110 active:bg-red-600 active:border-red-400 cursor-pointer'
-                    : 'bg-slate-800 border-slate-600 opacity-40 cursor-not-allowed'
-                }
-              `}
-            >
-              {isMicActive ? '⏺' : '🎙️'}
-              {/* Ripple ring when recording */}
-              {isMicActive && (
-                <span className="absolute inset-0 rounded-full border-2 border-red-400 animate-ping opacity-50" />
+          {/* BL-073: Voice selector — only when voices are available and voice mode is active */}
+          {availableVoices.length > 0 && phase !== 'unsupported' && phase !== 'ended' && (
+            <div className="relative flex justify-center mb-4">
+              <button
+                onClick={() => setShowVoicePicker(p => !p)}
+                className="flex items-center gap-1.5 px-3 py-1 text-xs text-slate-400 hover:text-slate-200 bg-slate-800/50 border border-slate-700/50 rounded-full transition-colors"
+              >
+                <span>🔊</span>
+                <span className="max-w-[160px] truncate">
+                  {selectedVoiceName ?? 'Default voice'}
+                </span>
+                <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {showVoicePicker && (
+                <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-20 max-h-52 overflow-y-auto w-72">
+                  <button
+                    onClick={() => { setSelectedVoiceName(null); setShowVoicePicker(false); }}
+                    className={`w-full text-left px-4 py-2 text-xs hover:bg-slate-700 transition-colors rounded-t-xl ${
+                      !selectedVoiceName ? 'text-purple-300 bg-slate-700/50' : 'text-slate-400'
+                    }`}
+                  >
+                    Default (auto-select)
+                  </button>
+                  {availableVoices.map(v => (
+                    <button
+                      key={v.name}
+                      onClick={() => { setSelectedVoiceName(v.name); setShowVoicePicker(false); }}
+                      className={`w-full text-left px-4 py-2 text-xs hover:bg-slate-700 transition-colors last:rounded-b-xl truncate ${
+                        selectedVoiceName === v.name ? 'text-purple-300 bg-slate-700/50' : 'text-slate-300'
+                      }`}
+                    >
+                      {v.name}
+                    </button>
+                  ))}
+                </div>
               )}
-            </button>
+            </div>
+          )}
 
-            <Waveform active={isAiTalking || isMicActive} color={waveColor} />
-          </div>
+          {/* Controls row — mic button (voice mode) or text input (unsupported fallback) */}
+          {phase === 'unsupported' ? (
+            <form
+              onSubmit={e => { e.preventDefault(); handleTextSubmit(); }}
+              className="w-full max-w-xl mx-auto"
+            >
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={textInput}
+                  onChange={e => setTextInput(e.target.value)}
+                  placeholder="Type your response…"
+                  disabled={sending}
+                  autoComplete="off"
+                  className="flex-1 bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white text-sm placeholder-slate-500 focus:border-purple-500 focus:outline-none disabled:opacity-50"
+                />
+                <button
+                  type="submit"
+                  disabled={!textInput.trim() || sending}
+                  className="px-5 py-3 bg-purple-700 hover:bg-purple-600 disabled:bg-slate-700 disabled:text-slate-500 rounded-xl text-sm font-medium transition-colors"
+                >
+                  {sending ? '…' : 'Send'}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="flex items-center justify-center gap-10">
+              <Waveform active={isAiTalking} color={waveColor} />
+
+              {/* Microphone button */}
+              <button
+                onMouseDown={startListening}
+                onMouseUp={stopListening}
+                onTouchStart={e => { e.preventDefault(); startListening(); }}
+                onTouchEnd={e => { e.preventDefault(); stopListening(); }}
+                disabled={phase !== 'idle' || sending}
+                aria-label={
+                  isMicActive ? 'Recording — release to send' : 'Hold to speak'
+                }
+                className={`
+                  relative w-24 h-24 rounded-full flex items-center justify-center text-4xl
+                  border-4 transition-all duration-200 shadow-2xl select-none
+                  ${
+                    isMicActive
+                      ? 'bg-red-600 border-red-400 scale-110 shadow-red-900/60'
+                      : canSpeak
+                      ? 'bg-purple-700 border-purple-500 hover:bg-purple-600 hover:scale-105 active:scale-110 active:bg-red-600 active:border-red-400 cursor-pointer'
+                      : 'bg-slate-800 border-slate-600 opacity-40 cursor-not-allowed'
+                  }
+                `}
+              >
+                {isMicActive ? '⏺' : '🎙️'}
+                {/* Ripple ring when recording */}
+                {isMicActive && (
+                  <span className="absolute inset-0 rounded-full border-2 border-red-400 animate-ping opacity-50" />
+                )}
+              </button>
+
+              <Waveform active={isAiTalking || isMicActive} color={waveColor} />
+            </div>
+          )}
 
           {/* Hands-free toggle */}
           {phase !== 'unsupported' && (
@@ -445,7 +548,7 @@ export default function VoiceChatInterface({
 
           <p className="text-xs text-slate-600 text-center mt-6">
             {phase === 'unsupported'
-              ? 'Switch to Chrome or Edge to use voice mode.'
+              ? 'Speech recognition is unavailable in this browser. You can still practice using text input above.'
               : 'Hold the mic, speak your response, then release. The virtual customer will reply aloud.'}
           </p>
         </div>

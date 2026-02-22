@@ -185,7 +185,8 @@ export async function POST(request: Request) {
 }
 
 // GET /api/chat?sessionId=...
-// Returns all messages in a session (for initial load / resume)
+// Returns all messages in a session (for initial load / resume).
+// Add ?stream=true to receive a live SSE stream of transcript updates (used by phone mode).
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -193,6 +194,11 @@ export async function GET(request: Request) {
 
     if (!sessionId) {
       return NextResponse.json({ error: 'sessionId is required' }, { status: 400 });
+    }
+
+    // ── BL-054: SSE transcript stream for phone simulation ──────────────────────
+    if (searchParams.get('stream') === 'true') {
+      return phoneTranscriptStream(sessionId);
     }
 
     const session = await prisma.simulationSession.findUnique({
@@ -216,7 +222,77 @@ export async function GET(request: Request) {
   }
 }
 
-// ─── Helper: End a session and auto-score ─────────────────────────────────────
+// ─── Helper: stream live phone transcript updates via SSE (BL-054) ────────────
+// Polls DB every 1 second and pushes events to the client as messages arrive.
+// Replaces the 3-second setInterval poll in PhoneInterface.
+
+async function phoneTranscriptStream(sessionId: string): Promise<Response> {
+  const encoder = new TextEncoder();
+  const MAX_ITERATIONS = 300; // 5-minute cap (300 × 1 s)
+  let lastMessageCount = -1;
+
+  const readable = new ReadableStream({
+    async start(controller) {
+      const send = (payload: unknown) => {
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+        } catch {
+          // controller already closed (client disconnected)
+        }
+      };
+
+      try {
+        for (let i = 0; i < MAX_ITERATIONS; i++) {
+          const session = await prisma.simulationSession.findUnique({
+            where: { id: sessionId },
+            include: {
+              scenario: true,
+              jobTitle: true,
+              messages: { orderBy: { timestamp: 'asc' } },
+              scores: { include: { criteria: true } },
+            },
+          });
+
+          if (!session) {
+            send({ type: 'error', message: 'Session not found' });
+            break;
+          }
+
+          const isTerminal =
+            session.status === 'COMPLETED' ||
+            session.status === 'CANCELLED' ||
+            session.status === 'ABANDONED';
+
+          if (session.messages.length !== lastMessageCount || isTerminal) {
+            lastMessageCount = session.messages.length;
+            if (isTerminal) {
+              send({ type: 'ended', session });
+              break;
+            }
+            send({ type: 'transcript', messages: session.messages, status: session.status });
+          }
+
+          await new Promise<void>(r => setTimeout(r, 1_000));
+        }
+      } catch (err) {
+        console.error('[chat] phoneTranscriptStream error:', err);
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', message: 'Stream error' })}\n\n`));
+        } catch { /* already closed */ }
+      } finally {
+        try { controller.close(); } catch { /* already closed */ }
+      }
+    },
+  });
+
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+    },
+  });
+}
 
 async function endSession(
   sessionId: string,

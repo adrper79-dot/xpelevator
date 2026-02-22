@@ -55,7 +55,7 @@ export interface SimulationSession {
   createdAt: string;
   messages: Message[];
   scores: ScoreItem[];
-  scenario: { name: string; description: string | null; type: string };
+  scenario: { name: string; description: string | null; type: string; script?: Record<string, unknown> };
   jobTitle: { name: string };
 }
 
@@ -67,6 +67,8 @@ export type ScenarioScript = {
   difficulty: 'easy' | 'medium' | 'hard';
   hints?: string[];
   maxTurns?: number;
+  /** Preferred TTS voice name for voice-mode simulations (matched against speechSynthesis.getVoices()) */
+  ttsVoiceName?: string;
 };
 
 export type ScoreResult = {

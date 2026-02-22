@@ -1,6 +1,6 @@
 # XPElevator — Product & Engineering Backlog
 
-Last evaluated: 2026-02-22 (sprint 8 — indexes, maxTurns, user identity upsert, voice hands-free, session cleanup)  
+Last evaluated: 2026-02-22 (sprint 9 — voice text fallback, TTS voice picker, SSE phone transcript)  
 Format: `[ID] Title — Priority | Status | Notes`
 
 ---
@@ -92,7 +92,7 @@ Format: `[ID] Title — Priority | Status | Notes`
 | BL-027 | Telnyx integration — outbound call initiation | `done` | `/api/telnyx/call` route; requires TELNYX_API_KEY + TELNYX_CONNECTION_ID + TELNYX_FROM_NUMBER in .env |
 | BL-028 | Telnyx webhook handler (`/api/telnyx/webhook`) | `done` | Full call flow: answered → speak → gather → AI reply → loop; hangup closes session |
 | BL-029 | Phone simulation UI — show transcript as call progresses | `done` | Phone call UI in `/simulate/[sessionId]` — dial screen, active call with live transcript polling (3s), hang-up button, call timer |
-| BL-054 | Replace phone transcript 3-second poll with SSE | `open` | Chat uses SSE correctly; phone simulation still polls `GET /api/chat` every 3s. Causes 0–3s display delay and unnecessary DB reads during calls |
+| BL-054 | Replace phone transcript 3-second poll with SSE | `done` | Chat uses SSE correctly; phone simulation still polls `GET /api/chat` every 3s. Causes 0–3s display delay and unnecessary DB reads during calls |
 
 ### AI Quality
 | ID | Title | Status | Notes |
@@ -202,6 +202,9 @@ Format: `[ID] Title — Priority | Status | Notes`
 | BL-068 | Extract `useChatSession` hook | Sprint 7 |
 | BL-069 | Extract `ChatInterface`, `PhoneInterface`, `MessageBubble` components | Sprint 7 |
 | BL-070 | Dual Chat/Voice launch buttons on simulate page | Sprint 7 |
+| BL-072 | Voice mode: Safari/Firefox fallback — text input when STT unavailable | Sprint 9 |
+| BL-073 | Voice mode: configurable TTS voice per scenario + UI voice picker | Sprint 9 |
+| BL-054 | Replace phone transcript 3-second poll with SSE | Sprint 9 |
 | BL-048 | Resolve dual identity model — OAuth User upsert + dbUserId FK | Sprint 8 |
 | BL-052 | DB indexes on FK columns | Sprint 8 |
 | BL-053 | Enforce `maxTurns` in chat route | Sprint 8 |
@@ -212,9 +215,9 @@ Format: `[ID] Title — Priority | Status | Notes`
 ## Next Sprint Candidates
 
 ### Sprint 9 — Voice Quality + UX
-1. **BL-072** — Voice mode: Safari/Firefox fallback (show text input if SpeechRecognition unavailable)
-2. **BL-073** — Voice mode: configurable TTS voice selection per scenario
-3. **BL-054** — Replace phone transcript poll with SSE
+1. **BL-072** — Voice mode: Safari/Firefox fallback (show text input if SpeechRecognition unavailable) `done`
+2. **BL-073** — Voice mode: configurable TTS voice selection per scenario `done`
+3. **BL-054** — Replace phone transcript poll with SSE `done`
 
 ### Sprint 10 — Security + Multi-Tenancy
 1. **BL-046** — Add auth checks to all API routes
