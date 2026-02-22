@@ -1,17 +1,18 @@
 // ── Prisma client with Neon HTTP adapter ────────────────────────────────────
 //
-// We use the STANDARD @prisma/client (Node.js native binary) here.
+// IMPORTANT: Must import from '@prisma/client/edge', NOT '@prisma/client'.
 //
-// @prisma/client/wasm is only required for true edge runtimes (CF Workers) where the
-// native binary cannot run. When deploying to Cloudflare via @opennextjs/cloudflare,
-// the esbuild bundle step handles the CF Workers compatibility. For local development
-// (Next.js dev server, Node.js) the WASM approach fails with "Unknown file extension
-// .wasm" because Node.js ESM does not load .wasm files without --experimental-wasm-modules.
+// '@prisma/client' loads runtime/library.js which requires a native .node binary
+// (libquery_engine-*.so.node). Cloudflare Workers does NOT support native Node.js
+// addons — every DB call will 500 in production if the standard import is used.
+//
+// '@prisma/client/edge' loads runtime/edge.js → query_engine_bg.wasm, which runs
+// in both CF Workers (production) and Node.js (local dev). Prisma 5+ / 6+ made the
+// /edge export safe to use in Node.js too — it auto-detects the runtime.
 //
 // References:
 //   https://www.prisma.io/docs/orm/prisma-client/deployment/edge/deploy-to-cloudflare-workers
-//   BL-045 — CF build currently broken; WASM strategy to be revisited
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client/edge';
 import { PrismaNeonHTTP } from '@prisma/adapter-neon';
 
 function createPrismaClient() {
