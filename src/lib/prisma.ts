@@ -1,18 +1,18 @@
 // ── Prisma client with Neon HTTP adapter ────────────────────────────────────
 //
-// IMPORTANT: Must import from '@prisma/client/edge', NOT '@prisma/client'.
+// IMPORTANT: Must import from '@prisma/client', NOT '@prisma/client/edge'.
 //
-// '@prisma/client' loads runtime/library.js which requires a native .node binary
-// (libquery_engine-*.so.node). Cloudflare Workers does NOT support native Node.js
-// addons — every DB call will 500 in production if the standard import is used.
+// When a driver adapter is configured (see driverAdapters previewFeature in
+// schema.prisma), ALL queries are routed through the adapter — Prisma never
+// touches the native .node query engine binary. The '/edge' import explicitly
+// throws PrismaClientValidationError when used together with an adapter option.
 //
-// '@prisma/client/edge' loads runtime/edge.js → query_engine_bg.wasm, which runs
-// in both CF Workers (production) and Node.js (local dev). Prisma 5+ / 6+ made the
-// /edge export safe to use in Node.js too — it auto-detects the runtime.
+// '@prisma/adapter-neon' uses the Neon HTTP API (fetch), which is available in
+// both Cloudflare Workers and Node.js — making this safe for CF deployment too.
 //
 // References:
-//   https://www.prisma.io/docs/orm/prisma-client/deployment/edge/deploy-to-cloudflare-workers
-import { PrismaClient } from '@prisma/client/edge';
+//   https://www.prisma.io/docs/orm/prisma-client/deployment/edge/deploy-to-cloudflare-workers#neon-http-adapter
+import { PrismaClient } from '@prisma/client';
 import { PrismaNeonHTTP } from '@prisma/adapter-neon';
 
 function createPrismaClient() {
