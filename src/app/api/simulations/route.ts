@@ -6,7 +6,8 @@ import prisma from '@/lib/prisma';
 // Start a new simulation session
 export async function POST(request: Request) {
   try {
-    const session = await auth();
+    // auth() is best-effort — a missing AUTH_SECRET should not block simulation creation
+    const session = await auth().catch(() => null);
     const body = await request.json();
     const { jobTitleId, scenarioId, type } = body;
 
@@ -39,7 +40,7 @@ export async function POST(request: Request) {
 // List simulation sessions
 export async function GET(request: Request) {
   try {
-    const session = await auth();
+    const session = await auth().catch(() => null);
     const { searchParams } = new URL(request.url);
 
     // Authenticated user sees only their sessions; anonymous query falls back to userId param
