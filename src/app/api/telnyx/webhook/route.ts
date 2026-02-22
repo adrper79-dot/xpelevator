@@ -91,7 +91,7 @@ export async function POST(request: Request) {
         const difficulty = (script.difficulty as string | undefined) ?? 'medium';
 
         // Generate AI opening line via Groq
-        const opening = await getGroq().chat.completions.create({
+        const opening = await (await getGroq()).chat.completions.create({
           model: 'llama3-70b-8192',
           messages: [
             {
@@ -186,7 +186,7 @@ export async function POST(request: Request) {
           content: m.content,
         }));
 
-        const aiReply = await getGroq().chat.completions.create({
+        const aiReply = await (await getGroq()).chat.completions.create({
           model: 'llama3-70b-8192',
           messages: [
             { role: 'system', content: buildSystemPrompt(persona, objective, difficulty) },

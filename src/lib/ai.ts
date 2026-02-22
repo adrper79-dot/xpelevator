@@ -1,18 +1,24 @@
-import Groq from 'groq-sdk';
+// groq-sdk is a CJS package with a dual CJS/ESM export — static ESM import can
+// fail in the esbuild + Cloudflare Workers bundle (produces "handler is not a
+// function" at runtime). Dynamic import() sidesteps that problem by deferring
+// the resolution until the first AI call, at which point the CF runtime has
+// fully initialised and the CJS interop shim works correctly.
 import type { ScenarioScript, ScoreResult } from '@/types';
+import type Groq from 'groq-sdk'; // type-only — no runtime import
 
 // Re-export so callers that import from '@/lib/ai' still get these types
 export type { ScenarioScript, ScoreResult };
 
-// ─── Client (lazy: avoids module-load crash when GROQ_API_KEY is absent) ─────
+// ─── Client (lazy dynamic import: avoids CF Worker bundle crash) ─────────────
 
 let _groq: Groq | null = null;
 
-export function getGroq(): Groq {
+export async function getGroq(): Promise<Groq> {
   if (!_groq) {
+    const { default: GroqClass } = await import('groq-sdk');
     const apiKey = process.env.GROQ_API_KEY?.replace(/\r/g, '');
     if (!apiKey) throw new Error('GROQ_API_KEY environment variable is not set');
-    _groq = new Groq({ apiKey });
+    _groq = new GroqClass({ apiKey }) as Groq;
   }
   return _groq;
 }
@@ -65,7 +71,7 @@ Begin the conversation by describing your issue or reason for calling.`;
  * Generate text (non-streaming) from the Groq API.
  */
 export async function generateResponse(messages: ChatMessage[]): Promise<string> {
-  const completion = await getGroq().chat.completions.create({
+  const completion = await (await getGroq()).chat.completions.create({
     model: 'llama-3.3-70b-versatile',
     messages,
     temperature: 0.75,
@@ -81,7 +87,7 @@ export async function* streamResponse(
   messages: ChatMessage[]
 ): AsyncGenerator<string> {
   try {
-    const stream = await getGroq().chat.completions.create({
+    const stream = await (await getGroq()).chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       messages,
       temperature: 0.75,
@@ -214,7 +220,7 @@ Rules:
 Respond ONLY with a valid JSON array, no extra text:
 [{"criteriaIndex": 1, "score": 7, "justification": "..."}]`;
 
-  const completion = await getGroq().chat.completions.create({
+  const completion = await (await getGroq()).chat.completions.create({
     model: 'llama-3.1-8b-instant',
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.1,
