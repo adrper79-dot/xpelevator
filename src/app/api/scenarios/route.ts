@@ -1,19 +1,20 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { requireAuth, AuthError } from '@/lib/auth-api';
+import { requireAuth, getAuthOrNull, AuthError } from '@/lib/auth-api';
 
 
 // GET /api/scenarios?jobTitleId=...
 export async function GET(request: Request) {
   try {
-    // Require authentication for reading scenarios
-    const { session } = await requireAuth();
-    const userOrgId = session.user.orgId;
+    // Public read - optionally scoped to user's org if authenticated
+    const authResult = await getAuthOrNull();
+    const userOrgId = authResult?.session.user.orgId;
 
     const { searchParams } = new URL(request.url);
     const jobTitleId = searchParams.get('jobTitleId');
 
-    // Multi-tenancy: show user's org scenarios + global scenarios (orgId is null)
+    // Multi-tenancy: show user's org scenarios + global ones
+    // If not authenticated, only show global scenarios
     const orgFilter = userOrgId
       ? { OR: [{ orgId: userOrgId }, { orgId: null }] }
       : { orgId: null };

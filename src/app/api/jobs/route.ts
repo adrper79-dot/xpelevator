@@ -1,15 +1,16 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { requireAuth, AuthError } from '@/lib/auth-api';
+import { requireAuth, getAuthOrNull, AuthError } from '@/lib/auth-api';
 
 
 export async function GET() {
   try {
-    // Require authentication for reading job titles
-    const { session } = await requireAuth();
-    const userOrgId = session.user.orgId;
+    // Public read - optionally scoped to user's org if authenticated
+    const authResult = await getAuthOrNull();
+    const userOrgId = authResult?.session.user.orgId;
 
     // Multi-tenancy: show user's org job titles + global ones (orgId is null)
+    // If not authenticated, only show global job titles
     const orgFilter = userOrgId
       ? { OR: [{ orgId: userOrgId }, { orgId: null }] }
       : { orgId: null };
