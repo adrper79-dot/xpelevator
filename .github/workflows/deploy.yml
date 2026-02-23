@@ -9,6 +9,13 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     name: Build and Deploy
+    
+    env:
+      # Dummy values for build time (not used at runtime in CF Workers)
+      DATABASE_URL: postgresql://user:pass@localhost/db
+      GROQ_API_KEY: dummy-key-for-build
+      AUTH_SECRET: dummy-secret-for-build
+    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
