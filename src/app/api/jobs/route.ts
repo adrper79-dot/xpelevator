@@ -19,7 +19,6 @@ export async function GET() {
             jt.description,
             jt.org_id as "orgId",
             jt.created_at as "createdAt",
-            jt.updated_at as "updatedAt",
             COALESCE(
               json_agg(
                 DISTINCT jsonb_build_object(
@@ -64,7 +63,6 @@ export async function GET() {
             jt.description,
             jt.org_id as "orgId",
             jt.created_at as "createdAt",
-            jt.updated_at as "updatedAt",
             COALESCE(
               json_agg(
                 DISTINCT jsonb_build_object(
@@ -132,8 +130,7 @@ export async function POST(request: Request) {
         name,
         description,
         org_id as "orgId",
-        created_at as "createdAt",
-        updated_at as "updatedAt"
+        created_at as "createdAt"
     `;
     return NextResponse.json(jobTitle, { status: 201 });
   } catch (error) {
