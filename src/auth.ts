@@ -20,7 +20,7 @@
 import NextAuth, { type DefaultSession } from 'next-auth';
 import GitHub from 'next-auth/providers/github';
 import Credentials from 'next-auth/providers/credentials';
-import prisma from '@/lib/prisma';
+import { sql } from '@/lib/db';
 
 // Extend the Session type to include the user.id and optional dbUserId fields
 declare module 'next-auth' {
@@ -55,17 +55,32 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         try {
           // Look up existing user
-          let user = await prisma.user.findUnique({
-            where: { email },
-            select: { id: true, email: true, name: true, role: true },
-          });
+          const existingUsers = await sql`
+            SELECT id, email, name, role
+            FROM users
+            WHERE email = ${email}
+            LIMIT 1
+          `;
+          let user = existingUsers.length > 0 ? {
+            id: existingUsers[0].id as string,
+            email: existingUsers[0].email as string,
+            name: existingUsers[0].name as string | null,
+            role: existingUsers[0].role as string,
+          } : null;
 
           // In dev/demo mode, auto-create user if not exists
           if (!user && process.env.CREDENTIALS_REQUIRE_EXISTING !== 'true') {
-            user = await prisma.user.create({
-              data: { email, name: email.split('@')[0], role: 'MEMBER' },
-              select: { id: true, email: true, name: true, role: true },
-            });
+            const created = await sql`
+              INSERT INTO users (id, email, name, role, created_at)
+              VALUES (gen_random_uuid(), ${email}, ${email.split('@')[0]}, 'MEMBER', NOW())
+              RETURNING id, email, name, role
+            `;
+            user = created[0] ? {
+              id: created[0].id as string,
+              email: created[0].email as string,
+              name: created[0].name as string | null,
+              role: created[0].role as string,
+            } : null;
           }
 
           if (!user) return null;
@@ -96,11 +111,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     async signIn({ user, account }) {
       if (account?.provider !== 'credentials' && user.email) {
         try {
-          await prisma.user.upsert({
-            where: { email: user.email },
-            update: { name: user.name ?? undefined },
-            create: { email: user.email, name: user.name ?? null },
-          });
+          await sql`
+            INSERT INTO users (id, email, name, created_at)
+            VALUES (gen_random_uuid(), ${user.email}, ${user.name ?? null}, NOW())
+            ON CONFLICT (email)
+            DO UPDATE SET name = ${user.name ?? null}
+          `;
         } catch (err) {
           // Non-fatal: log and continue sign-in
           console.warn('[auth] User upsert failed:', err);
@@ -114,8 +130,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     async jwt({ token, account }) {
       if (account && token.email) {
         try {
-          const dbUser = await prisma.user.findUnique({ where: { email: token.email } });
-          if (dbUser) (token as Record<string, unknown>).dbUserId = dbUser.id;
+          const users = await sql`
+            SELECT id FROM users WHERE email = ${token.email} LIMIT 1
+          `;
+          if (users.length > 0 && users[0].id) {
+            (token as Record<string, unknown>).dbUserId = users[0].id;
+          }
         } catch {
           // Non-fatal
         }
