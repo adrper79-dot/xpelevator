@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { sql } from '@/lib/db';
 import { buildSessionSystemPrompt, streamNextCustomerMessage, scoreSession } from '@/lib/ai';
 import { requireAuth, AuthError } from '@/lib/auth-api';
 
@@ -220,21 +221,78 @@ export async function GET(request: Request) {
       return phoneTranscriptStream(sessionId);
     }
 
-    const session = await prisma.simulationSession.findUnique({
-      where: { id: sessionId },
-      include: {
-        scenario: true,
-        jobTitle: true,
-        messages: { orderBy: { timestamp: 'asc' } },
-        scores: { include: { criteria: true } },
-      },
-    });
+    // Fetch session with all relations using raw SQL
+    const result = await sql`
+      SELECT 
+        ss.id,
+        ss.org_id as "orgId",
+        ss.user_id as "userId",
+        ss.db_user_id as "dbUserId",
+        ss.job_title_id as "jobTitleId",
+        ss.scenario_id as "scenarioId",
+        ss.type,
+        ss.status,
+        ss.started_at as "startedAt",
+        ss.ended_at as "endedAt",
+        ss.created_at as "createdAt",
+        json_build_object(
+          'id', s.id,
+          'name', s.name,
+          'description', s.description,
+          'type', s.type,
+          'script', s.script
+        ) as scenario,
+        json_build_object(
+          'id', jt.id,
+          'name', jt.name,
+          'description', jt.description
+        ) as "jobTitle",
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'id', m.id,
+              'role', m.role,
+              'content', m.content,
+              'timestamp', m.timestamp
+            ) ORDER BY m.timestamp
+          ) FILTER (WHERE m.id IS NOT NULL),
+          '[]'
+        ) as messages,
+        COALESCE(
+          (
+            SELECT json_agg(
+              json_build_object(
+                'id', sc.id,
+                'score', sc.score,
+                'feedback', sc.feedback,
+                'criteria', json_build_object(
+                  'id', c.id,
+                  'name', c.name,
+                  'description', c.description,
+                  'weight', c.weight,
+                  'category', c.category
+                )
+              ) ORDER BY sc.created_at
+            )
+            FROM scores sc
+            LEFT JOIN criteria c ON c.id = sc.criteria_id
+            WHERE sc.session_id = ss.id
+          ),
+          '[]'
+        ) as scores
+      FROM simulation_sessions ss
+      LEFT JOIN scenarios s ON s.id = ss.scenario_id
+      LEFT JOIN job_titles jt ON jt.id = ss.job_title_id
+      LEFT JOIN chat_messages m ON m.session_id = ss.id
+      WHERE ss.id = ${sessionId}
+      GROUP BY ss.id, s.id, jt.id
+    `;
 
-    if (!session) {
+    if (result.length === 0) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
-    return NextResponse.json(session);
+    return NextResponse.json(result[0]);
   } catch (error) {
     if (error instanceof AuthError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
