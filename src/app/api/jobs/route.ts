@@ -24,10 +24,10 @@ export async function GET() {
               json_agg(
                 DISTINCT jsonb_build_object(
                   'id', s.id,
-                  'title', s.title,
-                  'persona', s.persona,
+                  'name', s.name,
+                  'description', s.description,
                   'jobTitleId', s.job_title_id,
-                  'simulationType', s.simulation_type
+                  'type', s.type
                 )
               ) FILTER (WHERE s.id IS NOT NULL),
               '[]'
@@ -38,11 +38,11 @@ export async function GET() {
                   'id', jc.id,
                   'jobTitleId', jc.job_title_id,
                   'criteriaId', jc.criteria_id,
-                  'weight', jc.weight,
                   'criteria', jsonb_build_object(
                     'id', c.id,
                     'name', c.name,
                     'description', c.description,
+                    'weight', c.weight,
                     'category', c.category
                   )
                 )
@@ -69,10 +69,10 @@ export async function GET() {
               json_agg(
                 DISTINCT jsonb_build_object(
                   'id', s.id,
-                  'title', s.title,
-                  'persona', s.persona,
+                  'name', s.name,
+                  'description', s.description,
                   'jobTitleId', s.job_title_id,
-                  'simulationType', s.simulation_type
+                  'type', s.type
                 )
               ) FILTER (WHERE s.id IS NOT NULL),
               '[]'
@@ -83,11 +83,11 @@ export async function GET() {
                   'id', jc.id,
                   'jobTitleId', jc.job_title_id,
                   'criteriaId', jc.criteria_id,
-                  'weight', jc.weight,
                   'criteria', jsonb_build_object(
                     'id', c.id,
                     'name', c.name,
                     'description', c.description,
+                    'weight', c.weight,
                     'category', c.category
                   )
                 )
