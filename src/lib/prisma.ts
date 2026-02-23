@@ -1,16 +1,10 @@
-// ── Prisma client with Neon HTTP adapter ────────────────────────────────────
+// ── Prisma client with Neon HTTP adapter (WASM engine forced) ───────────────
 //
-// IMPORTANT: Must import from '@prisma/client', NOT '@prisma/client/edge'.
+// We keep the standard Prisma client because the `/edge` build rejects the
+// `adapter` option. To avoid Node fs usage inside Cloudflare, force Prisma to
+// use its WASM engine via `PRISMA_CLIENT_ENGINE_TYPE=wasm` (set in wrangler).
 //
-// In Prisma v6 with driverAdapters previewFeature + adapter option:
-//   - @prisma/client (standard) resolves to wasm.js in CF Workers (workerd
-//     condition). With an adapter, Prisma uses DriverAdapterQueryEngine and
-//     the WASM module (query_engine_bg.wasm) is NOT loaded at all.
-//   - @prisma/client/edge throws PrismaClientValidationError when adapter
-//     option is passed ("imported via /edge endpoint").
-//
-// References:
-//   https://www.prisma.io/docs/orm/prisma-client/deployment/edge/deploy-to-cloudflare#neon
+// Reference: https://www.prisma.io/docs/orm/prisma-client/deployment/edge/deploy-to-cloudflare#neon
 import { PrismaClient } from '@prisma/client';
 import { PrismaNeonHTTP } from '@prisma/adapter-neon';
 

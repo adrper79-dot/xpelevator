@@ -1,13 +1,17 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { requireAuth, AuthError } from '@/lib/auth-api';
 
 
 // GET /api/jobs/[id]/criteria — list all criteria linked to a job title
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Require authentication for reading job criteria
+    await requireAuth();
+
     const { id } = await params;
     const links = await prisma.jobCriteria.findMany({
       where: { jobTitleId: id },
@@ -16,6 +20,9 @@ export async function GET(
     });
     return NextResponse.json(links.map((l: { criteria: unknown }) => l.criteria));
   } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('[jobs/[id]/criteria] GET failed:', error);
     return NextResponse.json({ error: 'Failed to fetch criteria' }, { status: 500 });
   }
@@ -28,6 +35,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Require admin role for linking criteria
+    await requireAuth(request, 'ADMIN');
+
     const { id: jobTitleId } = await params;
     const body = await request.json();
 
@@ -45,6 +55,9 @@ export async function POST(
     });
     return NextResponse.json(link, { status: 201 });
   } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('[jobs/[id]/criteria] POST failed:', error);
     return NextResponse.json({ error: 'Failed to link criteria' }, { status: 500 });
   }
@@ -57,6 +70,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Require admin role for unlinking criteria
+    await requireAuth(request, 'ADMIN');
+
     const { id: jobTitleId } = await params;
     const body = await request.json().catch(() => ({}));
 
@@ -72,6 +88,9 @@ export async function DELETE(
     }
     return new NextResponse(null, { status: 204 });
   } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('[jobs/[id]/criteria] DELETE failed:', error);
     return NextResponse.json({ error: 'Failed to unlink criteria' }, { status: 500 });
   }

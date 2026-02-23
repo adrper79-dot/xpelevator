@@ -14,7 +14,7 @@ const blankJob = { name: '', description: '' };
 const blankScenario = {
   name: '',
   jobTitleId: '',
-  type: 'CHAT' as 'PHONE' | 'CHAT',
+  type: 'CHAT' as 'PHONE' | 'CHAT' | 'VOICE',
   description: '',
   script: JSON.stringify({
     customerPersona: '',
@@ -341,10 +341,11 @@ function ScenariosTab() {
             <input placeholder="Description (optional)" value={form.description}
               onChange={e => setForm({ ...form, description: e.target.value })}
               className="bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-slate-400" />
-            <select value={form.type} onChange={e => setForm({ ...form, type: e.target.value as 'PHONE' | 'CHAT' })}
+            <select value={form.type} onChange={e => setForm({ ...form, type: e.target.value as 'PHONE' | 'CHAT' | 'VOICE' })}
               className="bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white">
               <option value="CHAT">Chat</option>
               <option value="PHONE">Phone</option>
+              <option value="VOICE">Voice</option>
             </select>
           </div>
           <div>

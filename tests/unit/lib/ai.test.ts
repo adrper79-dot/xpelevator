@@ -27,7 +27,7 @@ type StreamChunk = {
 
 // ── Mock groq-sdk BEFORE importing ai.ts ─────────────────────────────────────
 // vi.hoisted ensures mockCreate is defined before the vi.mock factory runs
-const mockCreate = vi.hoisted(() => vi.fn<[], Promise<CompletionResponse | AsyncIterable<StreamChunk>>>());
+const mockCreate = vi.hoisted(() => vi.fn());
 
 vi.mock('groq-sdk', () => {
   // Use a real class so `new Groq(...)` doesn't throw "not a constructor"

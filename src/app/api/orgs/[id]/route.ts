@@ -6,13 +6,17 @@
  */
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { requireAuth, AuthError } from '@/lib/auth-api';
 
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Require admin role for viewing org details
+    await requireAuth(request, 'ADMIN');
+
     const { id } = await params;
     const org = await prisma.organization.findUnique({
       where: { id },
@@ -28,6 +32,9 @@ export async function GET(
 
     return NextResponse.json(org);
   } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Failed to get organization:', error);
     return NextResponse.json({ error: 'Failed to get organization' }, { status: 500 });
   }
@@ -38,6 +45,9 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Require admin role for updating orgs
+    await requireAuth(request, 'ADMIN');
+
     const { id } = await params;
     const body = (await request.json()) as { name?: string; plan?: string };
 
@@ -51,16 +61,22 @@ export async function PUT(
 
     return NextResponse.json(org);
   } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Failed to update organization:', error);
     return NextResponse.json({ error: 'Failed to update organization' }, { status: 500 });
   }
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Require admin role for deleting orgs
+    await requireAuth(request, 'ADMIN');
+
     const { id } = await params;
 
     // Safety check — refuse if org has sessions
@@ -77,6 +93,9 @@ export async function DELETE(
     await prisma.organization.delete({ where: { id } });
     return new NextResponse(null, { status: 204 });
   } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Failed to delete organization:', error);
     return NextResponse.json({ error: 'Failed to delete organization' }, { status: 500 });
   }

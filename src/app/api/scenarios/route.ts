@@ -1,20 +1,36 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { requireAuth, AuthError } from '@/lib/auth-api';
 
 
 // GET /api/scenarios?jobTitleId=...
 export async function GET(request: Request) {
   try {
+    // Require authentication for reading scenarios
+    const { session } = await requireAuth();
+    const userOrgId = session.user.orgId;
+
     const { searchParams } = new URL(request.url);
     const jobTitleId = searchParams.get('jobTitleId');
 
+    // Multi-tenancy: show user's org scenarios + global scenarios (orgId is null)
+    const orgFilter = userOrgId
+      ? { OR: [{ orgId: userOrgId }, { orgId: null }] }
+      : { orgId: null };
+
     const scenarios = await prisma.scenario.findMany({
-      where: jobTitleId ? { jobTitleId } : undefined,
+      where: {
+        ...orgFilter,
+        ...(jobTitleId ? { jobTitleId } : {}),
+      },
       include: { jobTitle: { select: { id: true, name: true } } },
       orderBy: [{ jobTitleId: 'asc' }, { name: 'asc' }],
     });
     return NextResponse.json(scenarios);
   } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('[scenarios] GET failed:', error);
     return NextResponse.json({ error: 'Failed to fetch scenarios' }, { status: 500 });
   }
@@ -24,6 +40,10 @@ export async function GET(request: Request) {
 // Body: { jobTitleId, name, description?, type: 'PHONE'|'CHAT', script? }
 export async function POST(request: Request) {
   try {
+    // Require admin role for creating scenarios
+    const { session } = await requireAuth(request, 'ADMIN');
+    const userOrgId = session.user.orgId;
+
     const body = await request.json();
 
     if (!body.jobTitleId || !body.name || !body.type) {
@@ -40,6 +60,7 @@ export async function POST(request: Request) {
         description: body.description ?? null,
         type: body.type,
         script: body.script ?? {},
+        orgId: userOrgId,  // Multi-tenancy: assign to user's org
       },
     });
     // PrismaNeonHTTP does not support implicit transactions;
@@ -50,6 +71,9 @@ export async function POST(request: Request) {
     });
     return NextResponse.json(scenario, { status: 201 });
   } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('[scenarios] POST failed:', error);
     return NextResponse.json({ error: 'Failed to create scenario' }, { status: 500 });
   }

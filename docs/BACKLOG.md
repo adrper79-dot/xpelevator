@@ -1,6 +1,6 @@
 # XPElevator — Product & Engineering Backlog
 
-Last evaluated: 2026-02-22 (sprint 9 — voice text fallback, TTS voice picker, SSE phone transcript)  
+Last evaluated: 2026-02-24 (sprint 10 — API auth guards, Credentials provider fix, Telnyx signature verification, multi-tenancy org filtering)  
 Format: `[ID] Title — Priority | Status | Notes`
 
 ---
@@ -32,9 +32,9 @@ Format: `[ID] Title — Priority | Status | Notes`
 | BL-003 | `groq-sdk` package install | `done` | Installed via Windows cmd.exe |
 | BL-004 | Fix JSX fragment error in `simulate/page.tsx` | `done` | Missing `<>` wrapper around ternary else branch |
 | BL-005 | Fix implicit `any` in `chat/route.ts` map callbacks | `done` | Added explicit type annotations |
-| BL-045 | Fix `@opennextjs/cloudflare` build failure (exit code 1) | `open` | Last build failed; likely `groq-sdk` CJS/ESM interop or `next-auth` v5 + React 19 incompatibility in CF bundler |
-| BL-046 | Add auth guards to all API routes (currently only `/admin` is protected) | `open` | `/api/chat`, `/api/analytics`, `/api/simulations` all world-readable — any unauthenticated request can read any employee transcript or create sessions |
-| BL-047 | Credentials provider grants admin access to any non-empty username | `open` | `auth.ts` authorize() accepts any string; middleware only checks cookie presence, not `User.role`. Anyone can type "admin" and access the Admin panel |
+| BL-045 | Fix `@opennextjs/cloudflare` build failure (exit code 1) | `done` | Fixed type error in `auth-api.ts` (`Headers` vs `Request` parameter); build now succeeds in 19.6s + 14.4s bundling |
+| BL-046 | Add auth guards to all API routes (currently only `/admin` is protected) | `done` | Created `src/lib/auth-api.ts` with `requireAuth()`/`withAuth()` helpers; all 15 API route files now check auth; ADMIN role required for write operations on criteria/jobs/scenarios/orgs |
+| BL-047 | Credentials provider grants admin access to any non-empty username | `done` | `auth.ts` now uses email-based DB lookup to verify actual `User.role`; dev mode auto-creates MEMBER users; middleware expanded to protect `/api/*`, `/simulate/*`, `/sessions/*`, `/analytics/*` |
 
 ---
 
@@ -62,9 +62,9 @@ Format: `[ID] Title — Priority | Status | Notes`
 | BL-018 | MVP user identity via localStorage username prompt | `done` | Modal on /simulate, saved to localStorage |
 | BL-019 | Pre-session name capture modal on /simulate | `done` | Username passed as `userId` to POST /api/simulations |
 | BL-048 | Resolve dual identity model (`userId` string vs `dbUserId` FK) | `done` | `signIn` callback upserts `User` row for OAuth users; `jwt` callback caches `dbUserId`; session exposes `dbUserId`; `SimulationSession.create` now sets `dbUserId` FK |
-| BL-049 | Wire `orgId` into all API routes to enforce multi-tenancy scope | `open` | `organizations` table exists and schema supports multi-tenancy but no API route filters by `orgId`. All data is currently cross-tenant visible; risk when first real org is onboarded |
+| BL-049 | Wire `orgId` into all API routes to enforce multi-tenancy scope | `done` | `organizations` table exists; all list endpoints now filter `WHERE orgId = ? OR orgId IS NULL`; [id] routes verify ownership before PUT/DELETE; chat/scoring verify session access |
 | BL-050 | Fix Groq model name in `telnyx/webhook/route.ts` | `done` | Changed to `llama-3.3-70b-versatile` (×2 in webhook); also fixed 5 related bugs — see BL-058–BL-062 |
-| BL-051 | Add Telnyx webhook signature verification | `open` | Webhook endpoint is open to any POST; a fabricated `call.hangup` can mark arbitrary sessions as complete and trigger scoring. Requires `TELNYX_PUBLIC_KEY` env var + HMAC verification |
+| BL-051 | Add Telnyx webhook signature verification | `done` | `verifyTelnyxWebhook()` in `auth-api.ts` uses ED25519 signature verification; skipped in dev when `TELNYX_PUBLIC_KEY` not set, enforced in prod |
 | BL-058 | Fix `@prisma/client/wasm` causing silent DB failures in dev server | `done` | `prisma.ts` imported WASM build → Node.js ESM loader threw `Unknown file extension ".wasm"` on every DB write. Changed to `@prisma/client` standard; WASM build deferred to CF Workers deploy |
 | BL-059 | Fix `create+include` implicit transaction in `simulations/route.ts` | `done` | `PrismaNeonHTTP` adapter rejects implicit transactions (create+include pattern). Split into `create` then `findUnique`; same fix already applied in `scenarios/route.ts` |
 | BL-060 | Fix inverted `CUSTOMER`/`AGENT` role assignments in Telnyx webhook | `done` | AI opening was saved as `AGENT`; trainee speech was saved as `CUSTOMER`. Roles swapped → scoring and transcript replay were both wrong |

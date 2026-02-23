@@ -1,6 +1,7 @@
 
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { requireAuth, AuthError } from '@/lib/auth-api';
 
 // Minimal types needed for the callback annotations below
 type ScoreFull = {
@@ -21,9 +22,18 @@ type SessionFull = {
 
 export async function GET() {
   try {
+    // Require authentication — analytics is sensitive data
+    const { session: authSession } = await requireAuth();
+    const userOrgId = authSession.user.orgId;
+
+    // Multi-tenancy: filter sessions by org (user's org + global if any)
+    const orgFilter = userOrgId
+      ? { OR: [{ orgId: userOrgId }, { orgId: null }] }
+      : { orgId: null };
+
     // Fetch all completed sessions with scores and criteria
     const rawSessions = await prisma.simulationSession.findMany({
-      where: { status: 'COMPLETED' },
+      where: { status: 'COMPLETED', ...orgFilter },
       include: {
         jobTitle: true,
         scenario: true,
@@ -141,6 +151,9 @@ export async function GET() {
       byType,
     });
   } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Analytics error:', error);
     return NextResponse.json({ error: 'Failed to load analytics' }, { status: 500 });
   }

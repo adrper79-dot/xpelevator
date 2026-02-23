@@ -40,17 +40,48 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
     ...githubProvider,
 
-    // Simple credentials provider — accepts any non-empty username.
-    // Replace with real user lookup + bcrypt verification for production.
+    // Credentials provider — looks up user by email in the database.
+    // For demo/dev: if no user exists, creates one with MEMBER role.
+    // For production: set CREDENTIALS_REQUIRE_EXISTING=true to only allow existing users.
     Credentials({
       credentials: {
-        username: { label: 'Username', type: 'text', placeholder: 'Your name' },
+        email: { label: 'Email', type: 'email', placeholder: 'you@example.com' },
+        // Password field included for future bcrypt support
+        password: { label: 'Password', type: 'password', placeholder: 'Optional in dev' },
       },
-      authorize(credentials) {
-        const name = (credentials?.username as string | undefined)?.trim();
-        if (!name) return null;
-        // Return a minimal user object. `id` becomes `token.sub` in the JWT.
-        return { id: name, name, email: null };
+      async authorize(credentials) {
+        const email = (credentials?.email as string | undefined)?.trim().toLowerCase();
+        if (!email || !email.includes('@')) return null;
+
+        try {
+          // Look up existing user
+          let user = await prisma.user.findUnique({
+            where: { email },
+            select: { id: true, email: true, name: true, role: true },
+          });
+
+          // In dev/demo mode, auto-create user if not exists
+          if (!user && process.env.CREDENTIALS_REQUIRE_EXISTING !== 'true') {
+            user = await prisma.user.create({
+              data: { email, name: email.split('@')[0], role: 'MEMBER' },
+              select: { id: true, email: true, name: true, role: true },
+            });
+          }
+
+          if (!user) return null;
+
+          // Return user object. `id` becomes `token.sub` in the JWT.
+          // Include role for downstream checks.
+          return {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+          };
+        } catch (err) {
+          console.error('[auth] Credentials authorize failed:', err);
+          return null;
+        }
       },
     }),
   ],

@@ -1,0 +1,54 @@
+start
+
+┌─────────────────────────────┐
+│ OpenNext — Cloudflare build │
+└─────────────────────────────┘
+
+App directory: /mnt/c/Users/Ultimate Warrior/My project/xpelevator
+Next.js version : 15.5.12
+@opennextjs/cloudflare version: 1.16.5
+@opennextjs/aws version: 3.9.16
+
+┌─────────────────────────────────┐
+│ OpenNext — Building Next.js app │
+└─────────────────────────────────┘
+
+
+> xpelevator@0.1.0 build
+> next build
+
+   [1m[38;2;173;127;168m▲ Next.js 15.5.12[39m[22m
+   - Environments: .env
+
+ [37m[1m [22m[39m Creating an optimized production build ...
+ [32m[1m✓[22m[39m Compiled successfully in 30.9s
+ [37m[1m [22m[39m Skipping linting
+ [37m[1m [22m[39m Checking validity of types ...
+[31mFailed to compile.
+[39m
+[31m[1mType error[22m[39m: File '/mnt/c/Users/Ultimate Warrior/My project/xpelevator/.next/types/cache-life.d.ts' not found.
+  The file is in the program because:
+    Root file specified for compilation
+
+Next.js build worker exited with code: 1 and signal: null
+node:internal/errors:984
+  const err = new Error(message);
+              ^
+
+Error: Command failed: npm run build
+    at genericNodeError (node:internal/errors:984:15)
+    at wrappedFn (node:internal/errors:538:14)
+    at checkExecSyncError (node:child_process:891:11)
+    at Object.execSync (node:child_process:963:15)
+    at buildNextjsApp (file:///mnt/c/Users/Ultimate%20Warrior/My%20project/xpelevator/node_modules/@opennextjs/aws/dist/build/buildNextApp.js:15:8)
+    at build (file:///mnt/c/Users/Ultimate%20Warrior/My%20project/xpelevator/node_modules/@opennextjs/cloudflare/dist/cli/build/build.js:50:9)
+    at async buildCommand (file:///mnt/c/Users/Ultimate%20Warrior/My%20project/xpelevator/node_modules/@opennextjs/cloudflare/dist/cli/commands/build.js:21:5) {
+  status: 1,
+  signal: null,
+  output: [ null, null, null ],
+  pid: 48954,
+  stdout: null,
+  stderr: null
+}
+
+Node.js v20.20.0

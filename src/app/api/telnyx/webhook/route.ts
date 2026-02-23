@@ -11,12 +11,8 @@
  *   4. call.hangup        → End session, trigger scoring
  *
  * Event reference: https://developers.telnyx.com/docs/call-control/receiving-webhooks
- *
- * ⚠️  TODO before production:
- *   - Verify Telnyx webhook signature (TELNYX_PUBLIC_KEY env var)
- *   - Add noise/retry handling for failed gathers
- *   - Handle call.machine.detection.ended (voicemail detection)
- */import { NextResponse } from 'next/server';
+ */
+import { NextResponse } from 'next/server';
 import { getGroq } from '@/lib/ai';
 import prisma from '@/lib/prisma';
 import {
@@ -26,6 +22,7 @@ import {
   decodeClientState,
   encodeClientState,
 } from '@/lib/telnyx';
+import { verifyTelnyxWebhook } from '@/lib/auth-api';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -54,11 +51,22 @@ interface TelnyxWebhookPayload {
 // ── Handler ────────────────────────────────────────────────────────────────────
 
 export async function POST(request: Request) {
+  // Clone request for signature verification (body can only be read once)
+  const clonedRequest = request.clone();
+  
   let body: TelnyxWebhookPayload;
   try {
     body = (await request.json()) as TelnyxWebhookPayload;
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+
+  // Verify Telnyx webhook signature in production
+  const rawBody = await clonedRequest.text();
+  const signatureValid = await verifyTelnyxWebhook(clonedRequest.headers, rawBody);
+  if (!signatureValid) {
+    console.warn('Telnyx webhook signature verification failed');
+    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
   }
 
   const { event_type, payload } = body.data;

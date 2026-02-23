@@ -6,13 +6,17 @@
  */
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { requireAuth, AuthError } from '@/lib/auth-api';
 
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Require admin role for listing org members
+    await requireAuth(request, 'ADMIN');
+
     const { id } = await params;
     const members = await prisma.user.findMany({
       where: { orgId: id },
@@ -21,6 +25,9 @@ export async function GET(
     });
     return NextResponse.json(members);
   } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Failed to list members:', error);
     return NextResponse.json({ error: 'Failed to list members' }, { status: 500 });
   }
@@ -31,6 +38,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Require admin role for adding org members
+    await requireAuth(request, 'ADMIN');
+
     const { id: orgId } = await params;
     const body = (await request.json()) as { email: string; name?: string; role?: string };
 
@@ -55,6 +65,9 @@ export async function POST(
 
     return NextResponse.json(user, { status: 201 });
   } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Failed to add member:', error);
     return NextResponse.json({ error: 'Failed to add member' }, { status: 500 });
   }
@@ -65,6 +78,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Require admin role for removing org members
+    await requireAuth(request, 'ADMIN');
+
     const { id: orgId } = await params;
     const { userId } = (await request.json()) as { userId: string };
 
@@ -85,6 +101,9 @@ export async function DELETE(
 
     return new NextResponse(null, { status: 204 });
   } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Failed to remove member:', error);
     return NextResponse.json({ error: 'Failed to remove member' }, { status: 500 });
   }

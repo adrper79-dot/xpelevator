@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { buildSessionSystemPrompt, streamNextCustomerMessage, scoreSession } from '@/lib/ai';
+import { requireAuth, AuthError } from '@/lib/auth-api';
 
 
 // POST /api/chat
@@ -10,6 +11,12 @@ import { buildSessionSystemPrompt, streamNextCustomerMessage, scoreSession } fro
 
 export async function POST(request: Request) {
   try {
+    // Require authentication for chat interactions
+    const { session: authSession } = await requireAuth();
+    const userId = authSession.user.id;
+    const userOrgId = authSession.user.orgId;
+    const userRole = authSession.user.role;
+
     console.log('[Chat API] POST request received');
     const body = await request.json();
     const { sessionId, content } = body as { sessionId: string; content: string };
@@ -42,6 +49,15 @@ export async function POST(request: Request) {
     if (!session) {
       console.error('[Chat API] Session not found:', sessionId);
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+
+    // Multi-tenancy: verify user can access this session
+    const canAccess =
+      session.userId === userId ||  // User owns the session
+      (userRole === 'ADMIN' && session.orgId === userOrgId);  // Admin in same org
+    if (!canAccess) {
+      console.error('[Chat API] Access denied for session:', sessionId);
+      return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 
     console.log('[Chat API] Session loaded:', { status: session.status, type: session.type, scenario: session.scenario.name });
@@ -189,6 +205,9 @@ export async function POST(request: Request) {
 // Add ?stream=true to receive a live SSE stream of transcript updates (used by phone mode).
 export async function GET(request: Request) {
   try {
+    // Require authentication for reading session data
+    await requireAuth();
+
     const { searchParams } = new URL(request.url);
     const sessionId = searchParams.get('sessionId');
 
@@ -217,6 +236,9 @@ export async function GET(request: Request) {
 
     return NextResponse.json(session);
   } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('[chat] GET failed:', error);
     return NextResponse.json({ error: 'Failed to fetch session' }, { status: 500 });
   }

@@ -1,24 +1,25 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import prisma from '@/lib/prisma';
+import { requireAuth, AuthError } from '@/lib/auth-api';
 
 
 // Start a new simulation session
 export async function POST(request: Request) {
   try {
-    // auth() is best-effort — a missing AUTH_SECRET should not block simulation creation
-    const session = await auth().catch(() => null);
+    // Require authentication to create sessions
+    const authResult = await requireAuth();
+
     const body = await request.json();
     const { jobTitleId, scenarioId, type } = body;
 
-    // Use the authenticated user's id if available; fall back to body for anonymous/guest sessions
-    const userId: string | null = session?.user?.id ?? body.userId ?? null;
+    // Use the authenticated user's DB ID if available
+    const userId: string = authResult.session.user.id;
+    const dbUserId: string | null = authResult.session.user.dbUserId ?? null;
+    const orgId: string | null = authResult.session.user.orgId ?? null;
 
     // PrismaNeonHTTP does not support implicit transactions triggered by create+include.
     // Create plain, then fetch relations separately (same pattern used in scenarios/route.ts).
-    // Resolve the DB User id if available (populated for OAuth users via auth.ts signIn callback)
-    const dbUserId: string | null = (session?.user as { dbUserId?: string } | undefined)?.dbUserId ?? null;
-
     const created = await prisma.simulationSession.create({
       data: {
         jobTitleId,
@@ -27,6 +28,7 @@ export async function POST(request: Request) {
         status: 'IN_PROGRESS',
         userId,
         dbUserId,
+        orgId,
         startedAt: new Date(),
       },
     });
@@ -37,6 +39,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json(newSession, { status: 201 });
   } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     const msg = error instanceof Error ? error.message : String(error);
     console.error('Failed to create simulation:', msg);
     return NextResponse.json(
@@ -49,14 +54,23 @@ export async function POST(request: Request) {
 // List simulation sessions
 export async function GET(request: Request) {
   try {
-    const session = await auth().catch(() => null);
+    // Require authentication to list sessions
+    const authResult = await requireAuth();
+
     const { searchParams } = new URL(request.url);
 
-    // Authenticated user sees only their sessions; anonymous query falls back to userId param
-    const userId = session?.user?.id ?? searchParams.get('userId');
+    // User sees only their own sessions (or org sessions if admin)
+    const userId = authResult.session.user.id;
+    const userRole = authResult.session.user.role;
+    const orgId = authResult.session.user.orgId;
+
+    // Admins can see all sessions in their org; members see only their own
+    const whereClause = userRole === 'ADMIN' && orgId
+      ? { orgId }
+      : { userId };
 
     const sessions = await prisma.simulationSession.findMany({
-      where: userId ? { userId } : undefined,
+      where: whereClause,
       include: {
         scenario: true,
         jobTitle: true,
@@ -66,6 +80,9 @@ export async function GET(request: Request) {
     });
     return NextResponse.json(sessions);
   } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     const msg = error instanceof Error ? error.message : String(error);
     console.error('Failed to list simulations:', msg);
     return NextResponse.json(
