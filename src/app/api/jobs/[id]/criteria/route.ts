@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+import { sql } from '@/lib/db';
 import { requireAuth, AuthError } from '@/lib/auth-api';
 
 
@@ -13,12 +13,19 @@ export async function GET(
     await requireAuth();
 
     const { id } = await params;
-    const links = await prisma.jobCriteria.findMany({
-      where: { jobTitleId: id },
-      include: { criteria: true },
-      orderBy: { criteria: { name: 'asc' } },
-    });
-    return NextResponse.json(links.map((l: { criteria: unknown }) => l.criteria));
+    const criteriaRows = await sql`
+      SELECT 
+        c.id,
+        c.name,
+        c.description,
+        c.org_id as "orgId",
+        c.created_at as "createdAt"
+      FROM job_criteria jc
+      INNER JOIN criteria c ON c.id = jc.criteria_id
+      WHERE jc.job_title_id = ${id}
+      ORDER BY c.name ASC
+    `;
+    return NextResponse.json(criteriaRows);
   } catch (error) {
     if (error instanceof AuthError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
@@ -45,14 +52,28 @@ export async function POST(
       return NextResponse.json({ error: 'criteriaId is required' }, { status: 400 });
     }
 
-    // PrismaNeonHTTP does not support implicit transactions; upsert uses them.
-    // Use findUnique + create pattern instead.
-    const existing = await prisma.jobCriteria.findUnique({
-      where: { jobTitleId_criteriaId: { jobTitleId, criteriaId: body.criteriaId } },
-    });
-    const link = existing ?? await prisma.jobCriteria.create({
-      data: { jobTitleId, criteriaId: body.criteriaId },
-    });
+    // Check if link already exists
+    const existingRows = await sql`
+      SELECT job_title_id as "jobTitleId", criteria_id as "criteriaId"
+      FROM job_criteria
+      WHERE job_title_id = ${jobTitleId} AND criteria_id = ${body.criteriaId}
+    `;
+    
+    if (existingRows.length === 0) {
+      // Create new link
+      await sql`
+        INSERT INTO job_criteria (job_title_id, criteria_id)
+        VALUES (${jobTitleId}, ${body.criteriaId})
+      `;
+    }
+    
+    // Return the link (existing or new)
+    const linkRows = await sql`
+      SELECT job_title_id as "jobTitleId", criteria_id as "criteriaId"
+      FROM job_criteria
+      WHERE job_title_id = ${jobTitleId} AND criteria_id = ${body.criteriaId}
+    `;
+    const link: any = linkRows[0];
     return NextResponse.json(link, { status: 201 });
   } catch (error) {
     if (error instanceof AuthError) {
@@ -77,14 +98,13 @@ export async function DELETE(
     const body = await request.json().catch(() => ({}));
 
     if (body.criteriaId) {
-      await prisma.jobCriteria.delete({
-        where: {
-          jobTitleId_criteriaId: { jobTitleId, criteriaId: body.criteriaId },
-        },
-      });
+      await sql`
+        DELETE FROM job_criteria
+        WHERE job_title_id = ${jobTitleId} AND criteria_id = ${body.criteriaId}
+      `;
     } else {
       // Remove all criteria links for this job
-      await prisma.jobCriteria.deleteMany({ where: { jobTitleId } });
+      await sql`DELETE FROM job_criteria WHERE job_title_id = ${jobTitleId}`;
     }
     return new NextResponse(null, { status: 204 });
   } catch (error) {

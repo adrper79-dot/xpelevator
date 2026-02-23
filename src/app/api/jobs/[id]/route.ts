@@ -1,6 +1,6 @@
 
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+import { sql } from '@/lib/db';
 import { requireAuth, AuthError } from '@/lib/auth-api';
 
 
@@ -16,22 +16,36 @@ export async function PUT(
     const { id } = await params;
 
     // Verify ownership: must belong to user's org or be global
-    const existing = await prisma.jobTitle.findUnique({ where: { id } });
-    if (!existing) {
+    const existingRows = await sql`
+      SELECT org_id as "orgId" FROM job_titles WHERE id = ${id}
+    `;
+    if (existingRows.length === 0) {
       return NextResponse.json({ error: 'Job title not found' }, { status: 404 });
     }
+    const existing: any = existingRows[0];
     if (existing.orgId && existing.orgId !== userOrgId) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 
     const body = await request.json();
-    const jobTitle = await prisma.jobTitle.update({
-      where: { id },
-      data: {
-        name: body.name,
-        description: body.description ?? null,
-      },
-    });
+    await sql`
+      UPDATE job_titles
+      SET 
+        name = ${body.name},
+        description = ${body.description ?? null}
+      WHERE id = ${id}
+    `;
+    const jobTitleRows = await sql`
+      SELECT 
+        id,
+        name,
+        description,
+        org_id as "orgId",
+        created_at as "createdAt"
+      FROM job_titles
+      WHERE id = ${id}
+    `;
+    const jobTitle: any = jobTitleRows[0];
     return NextResponse.json(jobTitle);
   } catch (error) {
     if (error instanceof AuthError) {
@@ -54,15 +68,18 @@ export async function DELETE(
     const { id } = await params;
 
     // Verify ownership: must belong to user's org or be global
-    const existing = await prisma.jobTitle.findUnique({ where: { id } });
-    if (!existing) {
+    const existingRows = await sql`
+      SELECT org_id as "orgId" FROM job_titles WHERE id = ${id}
+    `;
+    if (existingRows.length === 0) {
       return NextResponse.json({ error: 'Job title not found' }, { status: 404 });
     }
+    const existing: any = existingRows[0];
     if (existing.orgId && existing.orgId !== userOrgId) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 
-    await prisma.jobTitle.delete({ where: { id } });
+    await sql`DELETE FROM job_titles WHERE id = ${id}`;
     return new NextResponse(null, { status: 204 });
   } catch (error) {
     if (error instanceof AuthError) {
