@@ -102,6 +102,14 @@ Schema mismatch errors and Prisma Client incompatibility issues on Cloudflare Wo
 
 **Commit:** `0f17070`
 
+**Additional Fix:** Wrong column name in scores queries
+- ❌ Used `sc.created_at` when scores table has `scored_at` column
+- ❌ Caused 500 errors on GET /api/chat?sessionId=... after Prisma conversion
+- ✅ Fixed: Changed ORDER BY sc.created_at → ORDER BY sc.scored_at
+- ✅ Fixed: Changed INSERT created_at → INSERT scored_at
+
+**Commit:** `7e0a58f`
+
 ---
 
 ### ⚠️ NEEDS FIX: Remaining Routes Still Use Prisma Client
@@ -137,6 +145,9 @@ Schema mismatch errors and Prisma Client incompatibility issues on Cloudflare Wo
 
 **criteria:**
 - id, org_id, name, description, weight, category, active, created_at, updated_at
+
+**scores:**
+- id, session_id, criteria_id, score, feedback, scored_at
 
 ---
 
