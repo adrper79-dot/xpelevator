@@ -118,7 +118,7 @@ export async function POST(request: Request) {
       content.trim().toLowerCase() === 'end conversation';
 
     if (shouldEnd) {
-      return await endSession(sessionId, session);
+      return await endSession(sessionId, session as any);
     }
 
     // ── 3.5. Enforce maxTurns ─────────────────────────────────────────────────
@@ -133,7 +133,7 @@ export async function POST(request: Request) {
         ).length;
         if (priorAgentTurns + 1 >= maxTurns) {
           console.log(`[Chat API] maxTurns (${maxTurns}) reached — auto-ending session`);
-          return await endSession(sessionId, session);
+          return await endSession(sessionId, session as any);
         }
       }
     }
@@ -221,7 +221,7 @@ export async function POST(request: Request) {
               GROUP BY ss.id
             `;
             if (refreshedResult.length > 0) {
-              await endSession(sessionId, refreshedResult[0]);
+              await endSession(sessionId, refreshedResult[0] as any);
             }
             const sessionEndedEvent = `data: ${JSON.stringify({ type: 'session_ended' })}\n\n`;
             controller.enqueue(encoder.encode(sessionEndedEvent));
