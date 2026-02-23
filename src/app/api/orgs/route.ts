@@ -4,7 +4,7 @@
  * POST /api/orgs  — create a new organization (admin only)
  */
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+import { sql } from '@/lib/db';
 import { requireAuth, AuthError } from '@/lib/auth-api';
 
 
@@ -13,12 +13,34 @@ export async function GET() {
     // Require admin role for listing organizations
     await requireAuth(undefined, 'ADMIN');
 
-    const orgs = await prisma.organization.findMany({
-      include: {
-        _count: { select: { users: true, sessions: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const orgsRows = await sql`
+      SELECT 
+        o.id,
+        o.name,
+        o.slug,
+        o.plan,
+        o.created_at as "createdAt",
+        COUNT(DISTINCT u.id) as "_count.users",
+        COUNT(DISTINCT ss.id) as "_count.sessions"
+      FROM organizations o
+      LEFT JOIN users u ON u.org_id = o.id
+      LEFT JOIN simulation_sessions ss ON ss.org_id = o.id
+      GROUP BY o.id
+      ORDER BY o.created_at DESC
+    `;
+    
+    // Transform the flat structure to match Prisma's _count pattern
+    const orgs = orgsRows.map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+      plan: row.plan,
+      createdAt: row.createdAt,
+      _count: {
+        users: Number(row['_count.users']),
+        sessions: Number(row['_count.sessions'])
+      }
+    }));
     return NextResponse.json(orgs);
   } catch (error) {
     if (error instanceof AuthError) {
@@ -49,9 +71,12 @@ export async function POST(request: Request) {
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-|-$/g, '');
 
-    const org = await prisma.organization.create({
-      data: { name: body.name.trim(), slug },
-    });
+    const orgRows = await sql`
+      INSERT INTO organizations (id, name, slug, created_at)
+      VALUES (gen_random_uuid(), ${body.name.trim()}, ${slug}, NOW())
+      RETURNING id, name, slug, plan, created_at as "createdAt"
+    `;
+    const org: any = orgRows[0];
 
     return NextResponse.json(org, { status: 201 });
   } catch (error) {

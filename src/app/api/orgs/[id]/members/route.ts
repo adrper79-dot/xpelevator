@@ -5,7 +5,7 @@
  * DELETE /api/orgs/[id]/members  — remove a user from the org (body: { userId })
  */
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+import { sql } from '@/lib/db';
 import { requireAuth, AuthError } from '@/lib/auth-api';
 
 
@@ -18,11 +18,17 @@ export async function GET(
     await requireAuth(request, 'ADMIN');
 
     const { id } = await params;
-    const members = await prisma.user.findMany({
-      where: { orgId: id },
-      select: { id: true, email: true, name: true, role: true, createdAt: true },
-      orderBy: { createdAt: 'asc' },
-    });
+    const members = await sql`
+      SELECT 
+        id,
+        email,
+        name,
+        role,
+        created_at as "createdAt"
+      FROM users
+      WHERE org_id = ${id}
+      ORDER BY created_at ASC
+    `;
     return NextResponse.json(members);
   } catch (error) {
     if (error instanceof AuthError) {
@@ -48,20 +54,20 @@ export async function POST(
       return NextResponse.json({ error: 'email is required' }, { status: 400 });
     }
 
+    const email = body.email.trim().toLowerCase();
+    const role = (body.role as 'ADMIN' | 'MEMBER') ?? 'MEMBER';
+    
     // Upsert user — create if new, update orgId if existing
-    const user = await prisma.user.upsert({
-      where: { email: body.email.trim().toLowerCase() },
-      create: {
-        email: body.email.trim().toLowerCase(),
-        name: body.name?.trim(),
-        orgId,
-        role: (body.role as 'ADMIN' | 'MEMBER') ?? 'MEMBER',
-      },
-      update: {
-        orgId,
-        ...(body.role ? { role: body.role as 'ADMIN' | 'MEMBER' } : {}),
-      },
-    });
+    const userRows = await sql`
+      INSERT INTO users (id, email, name, org_id, role, created_at)
+      VALUES (gen_random_uuid(), ${email}, ${body.name?.trim() ?? null}, ${orgId}, ${role}, NOW())
+      ON CONFLICT (email) DO UPDATE
+      SET 
+        org_id = ${orgId},
+        role = COALESCE(${body.role ?? null}, users.role)
+      RETURNING id, email, name, org_id as "orgId", role, created_at as "createdAt"
+    `;
+    const user: any = userRows[0];
 
     return NextResponse.json(user, { status: 201 });
   } catch (error) {
@@ -88,16 +94,20 @@ export async function DELETE(
       return NextResponse.json({ error: 'userId is required' }, { status: 400 });
     }
 
-    // Remove org association (don't delete the user record)
-    const user = await prisma.user.findFirst({ where: { id: userId, orgId } });
-    if (!user) {
+    // Verify user exists in this org
+    const userRows = await sql`
+      SELECT id FROM users WHERE id = ${userId} AND org_id = ${orgId}
+    `;
+    if (userRows.length === 0) {
       return NextResponse.json({ error: 'User not found in this org' }, { status: 404 });
     }
 
-    await prisma.user.update({
-      where: { id: userId },
-      data: { orgId: null },
-    });
+    // Remove org association (don't delete the user record)
+    await sql`
+      UPDATE users
+      SET org_id = NULL
+      WHERE id = ${userId}
+    `;
 
     return new NextResponse(null, { status: 204 });
   } catch (error) {
