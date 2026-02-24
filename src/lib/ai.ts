@@ -3,6 +3,10 @@
 // function" at runtime). Dynamic import() sidesteps that problem by deferring
 // the resolution until the first AI call, at which point the CF runtime has
 // fully initialised and the CJS interop shim works correctly.
+
+// Polyfill http.Agent for groq-sdk in Cloudflare Workers
+import './http-agent-polyfill';
+
 import type { ScenarioScript, ScoreResult } from '@/types';
 import type Groq from 'groq-sdk'; // type-only — no runtime import
 
