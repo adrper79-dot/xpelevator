@@ -195,7 +195,8 @@ Rules:
 Respond ONLY with a valid JSON array, no extra text:
 [{"criteriaIndex": 1, "score": 7, "justification": "..."}]`;
 
-  const completion = await (await getGroq()).chat.completions.create({
+  const client = getGroqClient();
+  const completion = await client.chatCompletion({
     model: 'llama-3.1-8b-instant',
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.1,
