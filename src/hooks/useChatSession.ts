@@ -96,6 +96,7 @@ export function useChatSession(sessionId: string): ChatSessionState {
           const reader = res.body!.getReader();
           const decoder = new TextDecoder();
           let accumulated = '';
+          let responseProcessed = false; // Prevent duplicate 'done' event handling
 
           outer: while (true) {
             const { done, value } = await reader.read();
@@ -111,7 +112,11 @@ export function useChatSession(sessionId: string): ChatSessionState {
                 if (data.type === 'chunk') {
                   accumulated += data.content;
                   setStreamingText(accumulated);
-                } else if (data.type === 'done') {
+                } else if (data.type === 'done' && !responseProcessed) {
+                  responseProcessed = true;
+                  // Clear streaming text first to prevent flash of duplicate content
+                  setStreamingText('');
+                  
                   const aiMsg: Message = {
                     id: crypto.randomUUID(),
                     role: 'CUSTOMER',
@@ -120,8 +125,11 @@ export function useChatSession(sessionId: string): ChatSessionState {
                   };
                   setMessages(prev => [...prev, aiMsg]);
                   setLastAiMessage(data.content);
+                } else if (data.type === 'session_ending' && !responseProcessed) {
+                  responseProcessed = true;
+                  // Clear streaming text first
                   setStreamingText('');
-                } else if (data.type === 'session_ending') {
+             
                   const aiMsg: Message = {
                     id: crypto.randomUUID(),
                     role: 'CUSTOMER',
@@ -130,7 +138,6 @@ export function useChatSession(sessionId: string): ChatSessionState {
                   };
                   setMessages(prev => [...prev, aiMsg]);
                   setLastAiMessage(data.content);
-                  setStreamingText('');
                 } else if (data.type === 'session_ended') {
                   const updated: Session = await fetch(
                     `/api/chat?sessionId=${sessionId}`

@@ -90,7 +90,7 @@ export async function* streamResponse(
     const stream = await (await getGroq()).chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       messages,
-      temperature: 0.9,
+      temperature: 0.75,
       max_tokens: 400,
       stream: true,
     });
