@@ -144,13 +144,13 @@ export async function POST(request: Request) {
       session.scenario.script
     );
 
-    // Include the just-saved agent message in history
+    // Include the just-saved agent message in history (skip [START] signal)
     const history = [
       ...session.messages.map((m: { role: string; content: string }) => ({
         role: m.role as 'CUSTOMER' | 'AGENT',
         content: m.content,
       })),
-      { role: 'AGENT' as const, content: content.trim() },
+      ...(isStartSignal ? [] : [{ role: 'AGENT' as const, content: content.trim() }]),
     ];
 
     // ── 5. Stream AI response ─────────────────────────────────────────────────
