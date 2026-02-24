@@ -143,7 +143,7 @@ export async function GET(request: Request) {
                     'weight', c.weight,
                     'category', c.category
                   )
-                ) ORDER BY sc.created_at
+                ) ORDER BY sc.scored_at
               ) FILTER (WHERE sc.id IS NOT NULL),
               '[]'
             ) as scores
@@ -194,7 +194,7 @@ export async function GET(request: Request) {
                     'weight', c.weight,
                     'category', c.category
                   )
-                ) ORDER BY sc.created_at
+                ) ORDER BY sc.scored_at
               ) FILTER (WHERE sc.id IS NOT NULL),
               '[]'
             ) as scores
