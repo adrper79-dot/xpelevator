@@ -90,8 +90,10 @@ export async function POST(request: Request) {
 // List simulation sessions
 export async function GET(request: Request) {
   try {
+    console.log('[simulations/GET] Starting request');
     // Require authentication to list sessions
     const authResult = await requireAuth();
+    console.log('[simulations/GET] Auth passed:', { userId: authResult.session.user.id, role: authResult.session.user.role });
 
     const { searchParams } = new URL(request.url);
 
@@ -99,6 +101,7 @@ export async function GET(request: Request) {
     const userId = authResult.session.user.id;
     const userRole = authResult.session.user.role;
     const orgId = authResult.session.user.orgId;
+    console.log('[simulations/GET] Query params:', { userId, userRole, orgId });
 
     // Admins can see all sessions in their org; members see only their own
     const sessions = userRole === 'ADMIN' && orgId
@@ -205,15 +208,22 @@ export async function GET(request: Request) {
           ORDER BY ss.created_at DESC
         `;
 
+    console.log('[simulations/GET] Query completed, sessions count:', sessions.length);
     return NextResponse.json(sessions);
   } catch (error) {
+    console.error('[simulations/GET] ERROR:', error);
+    console.error('[simulations/GET] ERROR Stack:', error instanceof Error ? error.stack : 'No stack trace');
     if (error instanceof AuthError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
     const msg = error instanceof Error ? error.message : String(error);
-    console.error('Failed to list simulations:', msg);
+    const stack = error instanceof Error ? error.stack : undefined;
     return NextResponse.json(
-      { error: 'Failed to list simulations', detail: process.env.NODE_ENV !== 'production' ? msg : undefined },
+      { 
+        error: 'Failed to list simulations', 
+        detail: process.env.NODE_ENV !== 'production' ? msg : undefined,
+        stack: process.env.NODE_ENV !== 'production' ? stack : undefined
+      },
       { status: 500 }
     );
   }
