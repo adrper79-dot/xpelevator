@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     const groq = await getGroq();
     
     console.log('[Debug Groq] Groq client initialized, making test API call...');
-    const completion = await groq.chat.completions.create({
+    const completion = await groq.createChatCompletion({
       model: 'llama-3.3-70b-versatile',
       messages: [{ role: 'user', content: 'Say "test successful" and nothing else.' }],
       temperature: 0.5,
@@ -36,12 +36,6 @@ export async function GET(request: NextRequest) {
       message: error instanceof Error ? error.message : String(error),
       type: error?.constructor?.name || 'Unknown',
       stack: error instanceof Error ? error.stack : undefined,
-      // @ts-ignore - Groq SDK might have specific error fields
-      status: error?.status,
-      // @ts-ignore
-      statusText: error?.statusText,
-      // @ts-ignore
-      code: error?.code,
       // @ts-ignore - Full error object for debugging
       raw: JSON.stringify(error, Object.getOwnPropertyNames(error)),
     };
