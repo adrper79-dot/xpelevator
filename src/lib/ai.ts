@@ -1,18 +1,21 @@
-// Cloudflare Workers-compatible Groq client using native fetch()
-// Replaces groq-sdk which requires Node.js http.Agent (causes "Cannot read 
-// properties of undefined (reading 'maxCachedSessions')" error in Workers)
+// groq-sdk is a CJS package with a dual CJS/ESM export — static ESM import can
+// fail in the esbuild + Cloudflare Workers bundle (produces "handler is not a
+// function" at runtime). Dynamic import() sidesteps that problem by deferring
+// the resolution until the first AI call, at which point the CF runtime has
+// fully initialised and the CJS interop shim works correctly.
 import type { ScenarioScript, ScoreResult } from '@/types';
-import { GroqClient } from './groq-client';
+import type Groq from 'groq-sdk'; // type-only — no runtime import
 
 // Re-export so callers that import from '@/lib/ai' still get these types
 export type { ScenarioScript, ScoreResult };
 
-// ─── Client (fetch-based:  compatible with CF Workers) ────────────────────────
+// ─── Client (lazy dynamic import: avoids CF Worker bundle crash) ─────────────
 
-let _groq: GroqClient | null = null;
+let _groq: Groq | null = null;
 
-export async function getGroq(): Promise<GroqClient> {
+export async function getGroq(): Promise<Groq> {
   if (!_groq) {
+    const { default: GroqClass } = await import('groq-sdk');
     const apiKey = process.env.GROQ_API_KEY?.replace(/\r/g, '');
     if (!apiKey) {
       console.error('[AI] GROQ_API_KEY is not set in environment variables');
@@ -20,7 +23,7 @@ export async function getGroq(): Promise<GroqClient> {
       throw new Error('GROQ_API_KEY environment variable is not set');
     }
     console.log('[AI] Initializing Groq client with key:', apiKey.substring(0, 10) + '...');
-    _groq = new GroqClient({ apiKey });
+    _groq = new GroqClass({ apiKey }) as Groq;
   }
   return _groq;
 }
@@ -73,8 +76,7 @@ Begin the conversation by describing your issue or reason for calling.`;
  * Generate text (non-streaming) from the Groq API.
  */
 export async function generateResponse(messages: ChatMessage[]): Promise<string> {
-  const groq = await getGroq();
-  const completion = await groq.createChatCompletion({
+  const completion = await (await getGroq()).chat.completions.create({
     model: 'llama-3.3-70b-versatile',
     messages,
     temperature: 0.75,
@@ -90,12 +92,12 @@ export async function* streamResponse(
   messages: ChatMessage[]
 ): AsyncGenerator<string> {
   try {
-    const groq = await getGroq();
-    const stream = groq.createStreamingChatCompletion({
+    const stream = await (await getGroq()).chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       messages,
       temperature: 0.75,
       max_tokens: 400,
+      stream: true,
     });
 
     let hasYielded = false;
@@ -225,8 +227,7 @@ Rules:
 Respond ONLY with a valid JSON array, no extra text:
 [{"criteriaIndex": 1, "score": 7, "justification": "..."}]`;
 
-  const groq = await getGroq();
-  const completion = await groq.createChatCompletion({
+  const completion = await (await getGroq()).chat.completions.create({
     model: 'llama-3.1-8b-instant',
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.1,
