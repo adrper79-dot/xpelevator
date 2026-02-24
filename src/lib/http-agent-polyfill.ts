@@ -5,30 +5,35 @@
  * in Cloudflare Workers. This polyfill provides a minimal stub to prevent errors.
  */
 
-// Only apply polyfill if we're in Cloudflare Workers (non-Node environment)
-if (typeof global !== 'undefined' && !global.process?.versions?.node) {
-  // @ts-ignore  
-  if (!global.http) {
-    // @ts-ignore
-    global.http = {};
+// Aggressive polyfill - always provide http.Agent in globalThis
+// This runs before groq-sdk is imported
+const g = globalThis as any;
+
+if (!g.http) {
+  g.http = {};
+}
+
+if (!g.https) {
+  g.https = {};
+}
+
+class Agent {
+  maxCachedSessions = 100;
+  constructor(_options?: any) {
+    // Stub - just accept options but don't use them
   }
-  
-  // @ts-ignore
-  if (!global.http.Agent) {
-    class Agent {
-      maxCachedSessions = 100;
-      constructor() {}
-    }
-    
-    // @ts-ignore
-    global.http.Agent = Agent;
-  }
-  
-  // @ts-ignore
-  if (!global.https) {
-    // @ts-ignore
-    global.https = { Agent: global.http.Agent };
-  }
+}
+
+g.http.Agent = Agent;
+g.https.Agent = Agent;
+
+// Also set on global if it's different from globalThis
+if (typeof global !== 'undefined' && global !== globalThis) {
+  const gl = global as any;
+  if (!gl.http) gl.http = {};
+  if (!gl.https) gl.https = {};
+  gl.http.Agent = Agent;
+  gl.https.Agent = Agent;
 }
 
 export {};
