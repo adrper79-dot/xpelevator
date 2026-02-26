@@ -11,10 +11,13 @@ jobs:
     name: Build and Deploy
     
     env:
-      # Dummy values for build time (not used at runtime in CF Workers)
-      DATABASE_URL: postgresql://user:pass@localhost/db
-      GROQ_API_KEY: dummy-key-for-build
-      AUTH_SECRET: dummy-secret-for-build
+      # Real secrets injected at build time so env.ts validation passes.
+      # At RUNTIME the CF Worker reads these from Pages bindings via
+      # getCloudflareContext().env — NOT from process.env — so the built
+      # bundle never has stale/dummy values baked in for runtime use.
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
     
     steps:
       - name: Checkout

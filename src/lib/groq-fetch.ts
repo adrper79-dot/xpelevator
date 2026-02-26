@@ -2,6 +2,8 @@
  * Minimal Groq API client using fetch (Cloudflare Workers compatible)
  */
 
+import { getCloudflareContext } from '@opennextjs/cloudflare';
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -111,16 +113,40 @@ export class GroqFetchClient {
   }
 }
 
-// Singleton instance
-let _client: GroqFetchClient | null = null;
-
+/**
+ * Get a Groq client with the API key resolved at REQUEST time.
+ *
+ * Why not process.env?
+ * Next.js / webpack's DefinePlugin inlines process.env.* at BUILD time.
+ * If the CI build sets GROQ_API_KEY to a dummy value the string gets baked
+ * into the worker bundle and Groq returns 401 forever.
+ *
+ * getCloudflareContext().env is a runtime binding resolved by the CF Worker
+ * runtime — never touched by webpack — so it always carries the real secret.
+ * process.env is kept as a fallback so local `next dev` still works.
+ */
 export function getGroqClient(): GroqFetchClient {
-  if (!_client) {
-    const apiKey = process.env.GROQ_API_KEY?.replace(/\r/g, '');
-    if (!apiKey) {
-      throw new Error('GROQ_API_KEY environment variable is not set');
-    }
-    _client = new GroqFetchClient(apiKey);
+  let apiKey: string | undefined;
+
+  // 1. Cloudflare runtime bindings (production) — NOT inlined at build time
+  try {
+    const { env } = getCloudflareContext();
+    apiKey = (env as Record<string, string | undefined>).GROQ_API_KEY;
+  } catch {
+    // Not in a CF Worker context (local dev) — fall through
   }
-  return _client;
+
+  // 2. process.env fallback for local development
+  if (!apiKey) {
+    apiKey = process.env.GROQ_API_KEY?.replace(/\r/g, '');
+  }
+
+  // Reject obviously-wrong build-time placeholder injected by CI
+  if (!apiKey || apiKey.startsWith('dummy-')) {
+    throw new Error('GROQ_API_KEY is not available in this runtime environment');
+  }
+
+  // Do NOT cache as a module-level singleton: always resolve the key fresh so
+  // CF secret rotation takes effect without redeployment.
+  return new GroqFetchClient(apiKey);
 }
