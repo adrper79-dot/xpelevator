@@ -1,6 +1,6 @@
 # XPElevator — Lessons Learned
 
-> Last updated: 2026-02-24
+> Last updated: 2026-02-26
 > Maintained by: Engineering team
 > Purpose: Prevent recurring issues — consult before starting new features or debugging.
 
@@ -79,6 +79,7 @@ Before starting a new feature, scan the relevant category tables for patterns th
 | **Missing `required-server-files.json` → empty Pages deploy** (BL-070) | Next build exited early / hung on type-check; `.next/required-server-files.json` absent, so OpenNext produced a worker with no routes, yielding 404/empty body in production | Ensure `npx next build` completes and `.next/required-server-files.json` exists before running `npx @opennextjs/cloudflare build`; rerun Next build if file is missing | Gate every Pages deploy on a successful Next build that outputs `required-server-files.json`; add a CI check to fail if the file is absent |
 | **Pages assets 404 after deploy** (BL-071) | Deployed `.open-next` root instead of `.open-next/assets`; worker ran but `_next/static/...` assets were missing from Pages bucket, causing 404 for CSS/JS/fonts | Deploy with `pages_build_output_dir = ".open-next/assets"` so static assets and `_worker.js` are shipped together | Always point `pages_build_output_dir` to the OpenNext `assets` folder when using Pages advanced mode |
 | **`outputFileTracingRoot` lockfile warning** (BL-065) | Next.js detected multiple `package-lock.json` files and emitted noisy warnings on every start | Add `outputFileTracingRoot: path.join(__dirname)` in `next.config.ts` | Set `outputFileTracingRoot` whenever the project root differs from the Next.js app root |
+| **Missing production secrets in Cloudflare Pages** (BL-076) | GitHub Actions workflow deployed code but didn't set runtime environment variables; API keys missing in production, causing silent failures with fallback error messages | Add `wrangler pages secret put` commands to deployment workflow; store secrets in GitHub Actions repository secrets | Every environment variable used in production must be set via `wrangler pages secret put` or Cloudflare dashboard; never assume local `.env` values carry over to production |
 
 ---
 
