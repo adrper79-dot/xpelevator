@@ -53,7 +53,8 @@ export default async function SessionDetailPage({ params }: Props) {
               'score', sc.score,
               'feedback', sc.feedback,
               'criteria', json_build_object(
-                'name', c.name
+                'name', c.name,
+                'weight', c.weight
               )
             )
           )
@@ -75,10 +76,13 @@ export default async function SessionDetailPage({ params }: Props) {
 
   const session: any = sessionResult[0];
 
-  const totalScore =
-    session.scores.length > 0
-      ? Math.round(session.scores.reduce((sum: number, s: { score: number }) => sum + s.score, 0) / session.scores.length)
-      : null;
+  const totalScore = (() => {
+    const scores: Array<{ score: number; criteria: { weight: number } }> = session.scores;
+    if (scores.length === 0) return null;
+    const weightedSum = scores.reduce((sum, s) => sum + s.score * (s.criteria?.weight ?? 1), 0);
+    const totalWeight = scores.reduce((sum, s) => sum + (s.criteria?.weight ?? 1), 0);
+    return Math.round(weightedSum / totalWeight);
+  })();
 
   // Scores are on a 1–10 scale
   const scoreColor = (s: number) =>

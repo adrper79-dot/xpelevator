@@ -600,8 +600,8 @@ function JobCriteriaTab() {
     setLoading(true);
     fetch(`/api/jobs/${selectedJobId}/criteria`)
       .then(r => r.json())
-      .then((data: { criteriaId: string }[]) => {
-        setLinkedIds(new Set(data.map(d => d.criteriaId)));
+      .then((data: { id: string }[]) => {
+        setLinkedIds(new Set(data.map(d => d.id)));
         setLoading(false);
       });
   }, [selectedJobId]);
@@ -1045,7 +1045,7 @@ export default function AdminPage() {
             <button
               onClick={async () => {
                 try {
-                  const res = await fetch('/api/test-groq');
+                  const res = await fetch('/api/debug/groq');
                   const data = await res.json();
                   alert(data.success ? `✅ GROQ API Working: ${data.response}` : `❌ GROQ API Failed: ${data.error}`);
                 } catch (err) {
