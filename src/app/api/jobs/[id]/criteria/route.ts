@@ -62,8 +62,8 @@ export async function POST(
     if (existingRows.length === 0) {
       // Create new link
       await sql`
-        INSERT INTO job_criteria (job_title_id, criteria_id)
-        VALUES (${jobTitleId}, ${body.criteriaId})
+        INSERT INTO job_criteria (id, job_title_id, criteria_id)
+        VALUES (gen_random_uuid(), ${jobTitleId}, ${body.criteriaId})
       `;
     }
     

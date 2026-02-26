@@ -123,8 +123,8 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     const [jobTitle] = await sql`
-      INSERT INTO job_titles (name, description, org_id)
-      VALUES (${body.name}, ${body.description}, ${userOrgId})
+      INSERT INTO job_titles (id, name, description, org_id)
+      VALUES (gen_random_uuid(), ${body.name}, ${body.description}, ${userOrgId})
       RETURNING 
         id,
         name,

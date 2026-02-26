@@ -59,8 +59,9 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     const [criterion] = await sql`
-      INSERT INTO criteria (name, description, weight, category, active, org_id)
+      INSERT INTO criteria (id, name, description, weight, category, active, org_id)
       VALUES (
+        gen_random_uuid(),
         ${body.name},
         ${body.description},
         ${body.weight ?? 5},

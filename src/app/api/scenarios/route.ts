@@ -114,6 +114,7 @@ export async function POST(request: Request) {
 
     const [scenario] = await sql`
       INSERT INTO scenarios (
+        id,
         job_title_id,
         name,
         description,
@@ -122,6 +123,7 @@ export async function POST(request: Request) {
         org_id
       )
       VALUES (
+        gen_random_uuid(),
         ${body.jobTitleId},
         ${body.name},
         ${body.description ?? null},
