@@ -81,10 +81,10 @@ export async function* streamResponse(
       yield "I'm sorry, I'm having trouble responding right now. Could you please try again?";
     }
   } catch (error) {
-    console.error('[AI] Groq API error:', error);
-    console.error('[AI] Error details:', error instanceof Error ? error.message : String(error));
-    console.error('[AI] Error stack:', error instanceof Error ? error.stack : 'N/A');
-    yield "[System: The AI service is temporarily unavailable. Please try again in a moment.]";  // FALLBACK — never shown to end users in healthy state
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error('[AI] Groq API error:', msg);
+    // Yield a clear, actionable error — surfaces in UI so the cause is obvious
+    yield `[AI Error: ${msg}]`;
   }
 }
 
