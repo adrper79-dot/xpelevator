@@ -118,7 +118,7 @@ export async function callSpeak(callControlId: string, payload: {
  * Events fired by Telnyx (in order):
  *   1. call.speak.started  — TTS begins
  *   2. call.speak.ended    — TTS finished (ignore this in the webhook handler)
- *   3. call.gather.ended   — caller finished speaking; payload.transcript has the STT result
+ *   3. call.gather.ended   — caller finished speaking; payload.speech_results.transcription has the STT result
  */
 export async function callGather(callControlId: string, payload: {
   spokenPayload: string;      // The AI text to speak before listening
@@ -135,8 +135,13 @@ export async function callGather(callControlId: string, payload: {
       voice: 'female',
       // speech_end_timeout activates STT mode (not speech_timeout_millis).
       // Without this, Telnyx defaults to DTMF-only and returns no transcript.
+      // REQUIRES: ASR (Automatic Speech Recognition) enabled on the Telnyx account.
+      // Verify at: portal.telnyx.com → My Numbers → (number) → Voice Settings → Speech Recognition.
       speech_end_timeout: payload.speechEndTimeout ?? 1500,
       minimum_phrase_duration: 500,
+      // BL-091: Set valid_digits to empty string to disable DTMF-based gather termination.
+      // Without this, pressing ANY key on the phone ends the gather immediately (DTMF-only mode).
+      valid_digits: '',
       timeout_millis: payload.timeout ?? 10000,
       client_state: payload.clientState,
     }),

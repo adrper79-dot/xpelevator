@@ -1,6 +1,6 @@
 # XPElevator — Product & Engineering Backlog
 
-Last evaluated: 2026-02-26 (sprint 11 — correctness & diligence audit: INSERT IDs, weight wiring, phone scoring, criteria UI, score aggregation)  
+Last evaluated: 2026-02-27 (sprint 11 cont. — Telnyx STT payload field + DTMF-disable fixes BL-090, BL-091)  
 Format: `[ID] Title — Priority | Status | Notes`
 
 ---
@@ -86,6 +86,8 @@ Format: `[ID] Title — Priority | Status | Notes`
 | BL-086 | Admin `save()`/`remove()` silently swallow API errors | `done` | All mutation handlers now check `res.ok` and `alert()` on failure before calling `refresh()`. Fixed in commit `a0deb83` |
 | BL-088 | Telnyx `gather_using_speak` with `payload: ''` silently rejected | `done` | Empty payload causes Telnyx to reject the request; error swallowed by webhook catch block; no `call.gather.ended` fires; call goes silent after opening. Fixed with SSML break payload. Fixed in commit `f44b725` |
 | BL-089 | `speech_timeout_millis` not a valid Telnyx param — STT never activates | `done` | Without `speech_end_timeout`, Telnyx defaults to DTMF-only; transcript always empty; conversation loop dies after turn 1. Fixed with correct param + `speech_recognition_language`. Fixed in commit `f44b725` |
+| BL-090 | `call.gather.ended` reads wrong field for STT transcript | `done` | Code read `payload.transcript` (undefined); Telnyx sends speech as `payload.speech_results.transcription` — all speech was silently discarded, triggering endless "Are you still there?" loop. Fixed in commit `fix-bl-090-091` |
+| BL-091 | DTMF key-press ends gather before speech — no transcript captured | `done` | `callGather()` did not set `valid_digits: ''`; any phone key-press immediately ended the gather in DTMF mode, producing `digits` with no `speech_results`. Fixed by setting `valid_digits: ''` to disable DTMF termination. Same commit |
 | BL-021 | Add `loading.tsx` for simulate and sessions routes | `done` | Skeleton loaders for both routes |
 | BL-022 | Add `not-found.tsx` (404 page) | `done` | `src/app/not-found.tsx` |
 | BL-023 | Session detail page `/sessions/[id]` | `done` | Full transcript + per-criteria score breakdown |
@@ -148,6 +150,8 @@ Format: `[ID] Title — Priority | Status | Notes`
 | BL-087 | Remove `getNextCustomerMessage` dead code from `src/lib/ai.ts` | `done` — Function removed from `ai.ts`, import + test block removed from `ai.test.ts`. Fixed in commit `a0deb83` |
 | BL-088 | Telnyx `gather_using_speak` with empty `payload` silently rejected — no gather fires | `done` — Fixed with SSML break payload `<speak><break time="200ms"/></speak>`. Commit `f44b725` |
 | BL-089 | `speech_timeout_millis` not a valid Telnyx param; STT defaults to DTMF-only, no transcript | `done` — Renamed to `speech_end_timeout`; added `speech_recognition_language: 'en-US'` and `minimum_phrase_duration: 500`. Commit `f44b725` |
+| BL-090 | `call.gather.ended` reads `payload.transcript` — field doesn't exist; Telnyx sends speech as `speech_results.transcription` | `done` — Updated TS interface + handler to use `payload.speech_results?.transcription \|\| speech_results?.results?.[0]?.transcript`. Fixed this commit |
+| BL-091 | `callGather()` missing `valid_digits: ''` — DTMF key-press ends gather silently | `done` — Added `valid_digits: ''` to `gather_using_speak` body; only speech now ends the gather. Fixed this commit |
 | BL-063 | Add `validate.mjs` integration diagnostic script | `done` | `node validate.mjs` from project root — tests env vars, DB connectivity, scenario scripts, Groq API (streaming + non-streaming), E2E chat with scoring, Telnyx API |
 | BL-064 | Clean up 8 stuck `IN_PROGRESS` sessions with 0 messages | `done` | 8 sessions (PHONE/CHAT/VOICE) marked `ABANDONED` via SQL; no messages existed so no data loss |
 | BL-065 | Suppress `outputFileTracingRoot` lockfile warning in `next.config.ts` | `done` | Added `outputFileTracingRoot: path.join(__dirname)` to next.config.ts |
@@ -255,5 +259,7 @@ Format: `[ID] Title — Priority | Status | Notes`
 2. ~~**BL-087** — Remove `getNextCustomerMessage` dead code~~ ✅ done `a0deb83`
 3. ~~**BL-088** — Telnyx gather empty payload silently rejected~~ ✅ done `f44b725`
 4. ~~**BL-089** — Telnyx STT never activated (`speech_timeout_millis` → `speech_end_timeout`)~~ ✅ done `f44b725`
-5. **BL-056** — Scope `job_titles.name` unique to `(orgId, name)` (carry forward)
-6. **BL-057** — Add cascade deletes (carry forward)
+5. ~~**BL-090** — `call.gather.ended` reads wrong transcript field (`payload.transcript` → `speech_results.transcription`)~~ ✅ done this commit
+6. ~~**BL-091** — DTMF key-press silently ends gather; add `valid_digits: ''` to disable~~ ✅ done this commit
+7. **BL-056** — Scope `job_titles.name` unique to `(orgId, name)` (carry forward)
+8. **BL-057** — Add cascade deletes (carry forward)

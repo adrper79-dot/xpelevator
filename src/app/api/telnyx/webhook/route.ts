@@ -41,6 +41,11 @@ interface TelnyxClientState {
   turnCount?: number;
 }
 
+interface TelnyxSpeechResult {
+  transcript: string;
+  confidence: number;
+}
+
 interface TelnyxWebhookPayload {
   data: {
     event_type: string;
@@ -48,8 +53,14 @@ interface TelnyxWebhookPayload {
       call_control_id: string;
       call_leg_id?: string;
       client_state?: string;
-      // gather.ended specific
-      transcript?: string;
+      // call.gather.ended — DTMF result
+      digits?: string;
+      // call.gather.ended — STT result (requires ASR enabled on Telnyx account)
+      // Telnyx sends speech as payload.speech_results.transcription (NOT payload.transcript)
+      speech_results?: {
+        transcription?: string;             // top-level transcription string
+        results?: TelnyxSpeechResult[];     // array fallback
+      };
       reason?: string;
     };
   };
@@ -191,10 +202,23 @@ async function handleEvent(
       case 'call.gather.ended': {
         if (!state) break;
 
-        const transcript = payload.transcript?.trim();
+        // BL-090: Telnyx sends STT results as speech_results.transcription, NOT payload.transcript.
+        // BL-091: Gather can also end via DTMF (caller pressed a key) — treat that as no-speech.
+        const speechResults = payload.speech_results;
+        const transcript = (
+          speechResults?.transcription ||
+          speechResults?.results?.[0]?.transcript ||
+          ''
+        ).trim();
+
+        const endedViaDtmfOnly = !!payload.digits && !speechResults;
+
         if (!transcript) {
-          // No speech detected — re-prompt with a short nudge
+          // No speech detected (timeout, DTMF-only, or silence) — re-prompt
           const turn = state.turnCount ?? 0;
+          if (endedViaDtmfOnly) {
+            console.warn('[telnyx] gather.ended via DTMF with no speech — re-gathering (digits:', payload.digits, ')');
+          }
           if (turn > 10) {
             await callHangup(call_control_id);
           } else {
