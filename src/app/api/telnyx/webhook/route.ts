@@ -24,7 +24,8 @@ import { buildSessionSystemPrompt, scoreSession } from '@/lib/ai';
 import { sql } from '@/lib/db';
 import {
   callSpeak,
-  callGather,
+  startTranscription,
+  stopTranscription,
   callHangup,
   decodeClientState,
   encodeClientState,
@@ -41,11 +42,6 @@ interface TelnyxClientState {
   turnCount?: number;
 }
 
-interface TelnyxSpeechResult {
-  transcript: string;
-  confidence: number;
-}
-
 interface TelnyxWebhookPayload {
   data: {
     event_type: string;
@@ -53,15 +49,16 @@ interface TelnyxWebhookPayload {
       call_control_id: string;
       call_leg_id?: string;
       client_state?: string;
-      // call.gather.ended — DTMF result
-      digits?: string;
-      // call.gather.ended — STT result (requires ASR enabled on Telnyx account)
-      // Telnyx sends speech as payload.speech_results.transcription (NOT payload.transcript)
-      speech_results?: {
-        transcription?: string;             // top-level transcription string
-        results?: TelnyxSpeechResult[];     // array fallback
-      };
       reason?: string;
+      // call.transcription — real-time STT results from start_transcription
+      // is_final: true = utterance complete, process it
+      // is_final: false = partial result, ignore
+      transcription_data?: {
+        transcript: string;
+        is_final: boolean;
+        language?: string;
+        confidence?: number;
+      };
     };
   };
 }
@@ -133,7 +130,12 @@ async function handleEvent(
   client_state: string | undefined,
 ) {
   switch (event_type) {
-      // ── Call answered — AI speaks opening AND starts listening ────────────
+      // ── Call answered — AI generates and speaks the opening line ──────────
+      // NOTE: gather_using_speak is DTMF-only. Real STT uses start_transcription.
+      // Flow: call.answered → callSpeak(opening)
+      //       call.speak.ended → startTranscription (listen for trainee response)
+      //       call.transcription (is_final) → stopTranscription → Groq → callSpeak(reply)
+      //       call.speak.ended → startTranscription → repeat
       case 'call.answered': {
         if (!state) break;
 
@@ -142,7 +144,6 @@ async function handleEvent(
           SELECT id, script FROM scenarios WHERE id = ${state.scenarioId}
         `;
         const scenario: any = scenarioRows[0] ?? null;
-
         const script = (scenario?.script ?? {}) as Record<string, unknown>;
 
         // Generate AI opening line via Groq
@@ -151,14 +152,8 @@ async function handleEvent(
         const opening = await client.chatCompletion({
           model: 'llama-3.3-70b-versatile',
           messages: [
-            {
-              role: 'system',
-              content: systemPromptOpening,
-            },
-            {
-              role: 'user',
-              content: '[START_CONVERSATION]',
-            },
+            { role: 'system', content: systemPromptOpening },
+            { role: 'user', content: '[START_CONVERSATION]' },
           ],
           max_tokens: 100,
         });
@@ -166,70 +161,75 @@ async function handleEvent(
         const openingText = opening.choices[0]?.message?.content?.trim() ?? 'Hello?';
         const cleanOpening = openingText.replace('[RESOLVED]', '').trim();
 
-        // Save AI's opening message to DB (AI = CUSTOMER role; trainee = AGENT role)
+        // Save AI opening (CUSTOMER role)
         await saveMessage(state.sessionId, 'CUSTOMER', cleanOpening);
 
-        // Speak the opening AND immediately start gathering — one atomic action.
-        // Using gather_using_speak (not separate callSpeak + callGather) prevents
-        // an infinite call.speak.ended loop since gather_using_speak also fires
-        // call.speak.ended for its TTS portion.
+        // Speak the opening — call.speak.ended will trigger startTranscription
         const newState = { ...state, turnCount: 1 };
-        await callGather(call_control_id, {
-          spokenPayload: cleanOpening,
+        await callSpeak(call_control_id, {
+          payload: cleanOpening,
           clientState: encodeClientState(newState as unknown as Record<string, unknown>),
         });
         break;
       }
 
-      // ── call.speak.ended — only fires for final callSpeak before hangup ────
-      // gather_using_speak also fires call.speak.ended for its TTS portion, but
-      // we ignore it here — the conversation is driven entirely by call.gather.ended.
+      // ── call.speak.ended — AI finished speaking, start listening ──────────
+      // After AI speaks, start real-time STT transcription so the trainee's
+      // response is captured via call.transcription webhooks.
+      // Exception: if session is COMPLETED, hang up instead.
       case 'call.speak.ended': {
         if (!state) break;
-        const sessionRows = await sql`
+        const sessionRowsSpeak = await sql`
           SELECT status FROM simulation_sessions WHERE id = ${state.sessionId}
         `;
-        const session: any = sessionRows[0] ?? null;
-        if (session?.status === 'COMPLETED') {
+        const sessionSpeak: any = sessionRowsSpeak[0] ?? null;
+        if (sessionSpeak?.status === 'COMPLETED') {
           await callHangup(call_control_id);
+          break;
         }
-        // Otherwise: this is the speak.ended from gather_using_speak — ignore,
-        // Telnyx is already in listening mode; call.gather.ended will follow.
+        // Start real-time transcription — fires call.transcription webhooks
+        await startTranscription(call_control_id, {
+          engine: 'B',  // 'B' = Telnyx STT (no external key required)
+          clientState: client_state,
+        });
         break;
       }
 
-      // ── Gather ended — caller spoke, process the transcript ─────────────────
-      case 'call.gather.ended': {
+      // ── call.transcription — real-time STT from start_transcription ────────
+      // Telnyx fires this repeatedly as the trainee speaks.
+      // Only process is_final=true (complete utterance); ignore partials.
+      // When is_final=true: stop transcription → call Groq → speak AI reply
+      // → call.speak.ended will restart transcription automatically.
+      case 'call.transcription': {
         if (!state) break;
 
-        // BL-090: Telnyx sends STT results as speech_results.transcription, NOT payload.transcript.
-        // BL-091: Gather can also end via DTMF (caller pressed a key) — treat that as no-speech.
-        const speechResults = payload.speech_results;
-        const transcript = (
-          speechResults?.transcription ||
-          speechResults?.results?.[0]?.transcript ||
-          ''
-        ).trim();
+        const transcriptionData = payload.transcription_data;
+        if (!transcriptionData?.is_final) {
+          // Partial result — ignore, wait for is_final=true
+          break;
+        }
 
-        const endedViaDtmfOnly = !!payload.digits && !speechResults;
+        const transcript = transcriptionData.transcript?.trim() ?? '';
 
         if (!transcript) {
-          // No speech detected (timeout, DTMF-only, or silence) — re-prompt
+          // is_final but empty transcript — silence / no speech detected
           const turn = state.turnCount ?? 0;
-          if (endedViaDtmfOnly) {
-            console.warn('[telnyx] gather.ended via DTMF with no speech — re-gathering (digits:', payload.digits, ')');
-          }
+          console.warn('[telnyx] call.transcription is_final with empty transcript (silence). turn:', turn);
+          // Stop transcription first, then re-prompt
+          try { await stopTranscription(call_control_id); } catch {}
           if (turn > 10) {
             await callHangup(call_control_id);
           } else {
-            await callGather(call_control_id, {
-              spokenPayload: 'Are you still there?',
-              timeout: 10000,
+            await callSpeak(call_control_id, {
+              payload: 'Are you still there?',
               clientState: client_state,
             });
           }
           break;
         }
+
+        // Stop transcription before processing — prevents picking up AI's TTS voice
+        await stopTranscription(call_control_id);
 
         // Save caller's (trainee/AGENT) turn to DB
         await saveMessage(state.sessionId, 'AGENT', transcript);
@@ -293,19 +293,19 @@ async function handleEvent(
             const globalCriteria = await sql`SELECT id, name, description, weight FROM criteria WHERE active = true`;
             scoringCriteria = globalCriteria as any[];
           }
-          // Load full transcript
+          // Load full transcript for scoring
           const allMessages = await sql`
             SELECT role, content FROM chat_messages
             WHERE session_id = ${state.sessionId}
             ORDER BY timestamp ASC
           `;
-          const transcript = (allMessages as any[]).map((m: any) => ({
+          const fullTranscript = (allMessages as any[]).map((m: any) => ({
             role: m.role as 'CUSTOMER' | 'AGENT',
             content: m.content,
           }));
-          if (transcript.length >= 2 && scoringCriteria.length > 0) {
+          if (fullTranscript.length >= 2 && scoringCriteria.length > 0) {
             try {
-              const scores = await scoreSession(transcript, scoringCriteria);
+              const scores = await scoreSession(fullTranscript, scoringCriteria);
               for (const s of scores) {
                 await sql`
                   INSERT INTO scores (id, session_id, criteria_id, score, feedback, scored_at)
@@ -323,19 +323,12 @@ async function handleEvent(
           turnCount: (state.turnCount ?? 0) + 1,
         };
 
-        if (isResolved) {
-          // Speak the farewell, then call.speak.ended will trigger hangup
-          await callSpeak(call_control_id, {
-            payload: cleanText,
-            clientState: encodeClientState(newState as unknown as Record<string, unknown>),
-          });
-        } else {
-          // Speak AI reply AND immediately start listening for next caller turn
-          await callGather(call_control_id, {
-            spokenPayload: cleanText,
-            clientState: encodeClientState(newState as unknown as Record<string, unknown>),
-          });
-        }
+        // Speak AI reply — call.speak.ended will restart startTranscription automatically
+        // (or hang up if isResolved — checked in call.speak.ended handler)
+        await callSpeak(call_control_id, {
+          payload: cleanText,
+          clientState: encodeClientState(newState as unknown as Record<string, unknown>),
+        });
         break;
       }
 

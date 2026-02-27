@@ -192,7 +192,8 @@ export async function verifyTelnyxWebhook(
 
   try {
     // Use Web Crypto API for ED25519 verification (works in Edge runtime)
-    const keyData = hexToBytes(publicKey);
+    // Telnyx encodes the public key and signature header in base64, not hex.
+    const keyData = base64ToBytes(publicKey);
     const key = await crypto.subtle.importKey(
       'raw',
       keyData.buffer as ArrayBuffer,
@@ -201,7 +202,7 @@ export async function verifyTelnyxWebhook(
       ['verify']
     );
 
-    const signatureBytes = hexToBytes(signature);
+    const signatureBytes = base64ToBytes(signature);
     const payloadBytes = new TextEncoder().encode(signedPayload);
 
     const valid = await crypto.subtle.verify(
@@ -222,10 +223,11 @@ export async function verifyTelnyxWebhook(
   }
 }
 
-function hexToBytes(hex: string): Uint8Array {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+function base64ToBytes(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
   }
   return bytes;
 }

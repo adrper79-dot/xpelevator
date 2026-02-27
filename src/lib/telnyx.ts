@@ -108,47 +108,61 @@ export async function callSpeak(callControlId: string, payload: {
 }
 
 /**
- * Speak text AND immediately start listening for the caller's response.
+ * Start real-time speech-to-text transcription on an active call.
  *
- * This is the correct Telnyx Call Control conversation pattern: every AI turn
- * uses gather_using_speak so speaking + STT gathering happen in one atomic action.
- * This avoids a speak → call.speak.ended → gather → call.speak.ended infinite loop
- * that occurs when callSpeak and callGather are used as separate sequential steps.
+ * NOTE: gather_using_speak does NOT support speech recognition — it is DTMF-only.
+ * The correct Telnyx STT API is start_transcription which fires call.transcription
+ * webhooks with a `transcription_data.transcript` and `transcription_data.is_final`
+ * on each utterance.
  *
- * Events fired by Telnyx (in order):
- *   1. call.speak.started  — TTS begins
- *   2. call.speak.ended    — TTS finished (ignore this in the webhook handler)
- *   3. call.gather.ended   — caller finished speaking; payload.speech_results.transcription has the STT result
+ * Transcription engine options:
+ *   'B' = Telnyx (default, available on all accounts)
+ *   'A' = Google (requires Google STT integration secret in portal)
+ *   'Deepgram' = Deepgram (requires Deepgram key)
+ *
+ * Webhook fired: call.transcription
+ *   payload.transcription_data.transcript  — the spoken text
+ *   payload.transcription_data.is_final    — true when utterance is complete
  */
-export async function callGather(callControlId: string, payload: {
-  spokenPayload: string;      // The AI text to speak before listening
-  speechEndTimeout?: number;  // Silence-after-speech before STT finalises (ms)
-  timeout?: number;           // Overall inactivity timeout (ms)
+export async function startTranscription(callControlId: string, options: {
+  engine?: 'A' | 'B' | 'Google' | 'Telnyx' | 'Deepgram';
+  language?: string;
   clientState?: string;
 }) {
-  const res = await fetch(`${TELNYX_BASE}/calls/${callControlId}/actions/gather_using_speak`, {
+  const res = await fetch(`${TELNYX_BASE}/calls/${callControlId}/actions/transcription_start`, {
     method: 'POST',
     headers: telnyxHeaders(),
     body: JSON.stringify({
-      payload: payload.spokenPayload,
-      language: 'en-US',
-      voice: 'female',
-      // speech_end_timeout activates STT mode (not speech_timeout_millis).
-      // Without this, Telnyx defaults to DTMF-only and returns no transcript.
-      // REQUIRES: ASR (Automatic Speech Recognition) enabled on the Telnyx account.
-      // Verify at: portal.telnyx.com → My Numbers → (number) → Voice Settings → Speech Recognition.
-      speech_end_timeout: payload.speechEndTimeout ?? 1500,
-      minimum_phrase_duration: 500,
-      // BL-091: Set valid_digits to empty string to disable DTMF-based gather termination.
-      // Without this, pressing ANY key on the phone ends the gather immediately (DTMF-only mode).
-      valid_digits: '',
-      timeout_millis: payload.timeout ?? 10000,
-      client_state: payload.clientState,
+      transcription_engine: options.engine ?? 'B',  // 'B' = Telnyx STT (default)
+      transcription_engine_config: {
+        language: options.language ?? 'en-US',
+        transcription_engine: 'B',
+        transcription_model: 'openai/whisper-large-v3-turbo',
+      },
+      client_state: options.clientState,
     }),
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Telnyx gather failed: ${res.status} ${text}`);
+    throw new Error(`Telnyx start_transcription failed: ${res.status} ${text}`);
+  }
+  return res.json();
+}
+
+/** Stop real-time speech-to-text transcription on an active call. */
+export async function stopTranscription(callControlId: string, options?: {
+  clientState?: string;
+}) {
+  const res = await fetch(`${TELNYX_BASE}/calls/${callControlId}/actions/transcription_stop`, {
+    method: 'POST',
+    headers: telnyxHeaders(),
+    body: JSON.stringify({
+      client_state: options?.clientState,
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Telnyx stop_transcription failed: ${res.status} ${text}`);
   }
   return res.json();
 }
