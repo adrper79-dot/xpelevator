@@ -109,20 +109,25 @@ export async function callSpeak(callControlId: string, payload: {
 
 /** Gather speech input from the caller (Speech-to-Text). */
 export async function callGather(callControlId: string, payload: {
-  timeout?: number;       // Silence timeout in ms
-  speechTimeout?: number; // Max speech duration in ms
+  timeout?: number;       // Overall inactivity timeout in ms before gather ends
+  speechEndTimeout?: number; // Silence gap after speech ends before STT finalises (ms)
   clientState?: string;
 }) {
   const res = await fetch(`${TELNYX_BASE}/calls/${callControlId}/actions/gather_using_speak`, {
     method: 'POST',
     headers: telnyxHeaders(),
     body: JSON.stringify({
-      payload: '',             // No initial TTS — just listen
+      // A short SSML break activates the TTS engine with no audible speech,
+      // allowing Telnyx to enter speech-recognition (STT) gather mode.
+      payload: '<speak><break time="200ms"/></speak>',
       language: 'en-US',
       voice: 'female',
-      valid_digits: '',
-      timeout_millis: payload.timeout ?? 5000,
-      speech_timeout_millis: payload.speechTimeout ?? 8000,
+      // speech_end_timeout (not speech_timeout_millis) activates STT mode.
+      // Without this, Telnyx defaults to DTMF-only and never returns a transcript.
+      speech_end_timeout: payload.speechEndTimeout ?? 1500,
+      minimum_phrase_duration: 500,
+      speech_recognition_language: 'en-US',
+      timeout_millis: payload.timeout ?? 8000,
       client_state: payload.clientState,
     }),
   });

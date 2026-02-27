@@ -145,8 +145,8 @@ export async function POST(request: Request) {
         }
 
         await callGather(call_control_id, {
-          timeout: 4000,
-          speechTimeout: 10000,
+          timeout: 8000,
+          speechEndTimeout: 1500,
           clientState: client_state,
         });
         break;
@@ -164,8 +164,8 @@ export async function POST(request: Request) {
             await callHangup(call_control_id);
           } else {
             await callGather(call_control_id, {
-              timeout: 6000,
-              speechTimeout: 12000,
+              timeout: 8000,
+              speechEndTimeout: 1500,
               clientState: client_state,
             });
           }
