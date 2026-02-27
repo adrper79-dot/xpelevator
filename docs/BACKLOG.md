@@ -84,6 +84,8 @@ Format: `[ID] Title — Priority | Status | Notes`
 | BL-084 | Admin debug GROQ button called `/api/test-groq` (404) | `done` | Button called `/api/test-groq` which doesn't exist. Correct route is `/api/debug/groq`. Fixed in commit `657353e` |
 | BL-085 | Session detail `/sessions/[id]` used simple mean for total score | `done` | SQL query didn't fetch `c.weight`; total score computed as `avg(score)` instead of `sum(score×weight)/sum(weight)`. Now consistent with analytics. Fixed in commit `657353e` |
 | BL-086 | Admin `save()`/`remove()` silently swallow API errors | `done` | All mutation handlers now check `res.ok` and `alert()` on failure before calling `refresh()`. Fixed in commit `a0deb83` |
+| BL-088 | Telnyx `gather_using_speak` with `payload: ''` silently rejected | `done` | Empty payload causes Telnyx to reject the request; error swallowed by webhook catch block; no `call.gather.ended` fires; call goes silent after opening. Fixed with SSML break payload. Fixed in commit `f44b725` |
+| BL-089 | `speech_timeout_millis` not a valid Telnyx param — STT never activates | `done` | Without `speech_end_timeout`, Telnyx defaults to DTMF-only; transcript always empty; conversation loop dies after turn 1. Fixed with correct param + `speech_recognition_language`. Fixed in commit `f44b725` |
 | BL-021 | Add `loading.tsx` for simulate and sessions routes | `done` | Skeleton loaders for both routes |
 | BL-022 | Add `not-found.tsx` (404 page) | `done` | `src/app/not-found.tsx` |
 | BL-023 | Session detail page `/sessions/[id]` | `done` | Full transcript + per-criteria score breakdown |
@@ -144,6 +146,8 @@ Format: `[ID] Title — Priority | Status | Notes`
 | BL-057 | Add `onDelete: Cascade` on Session→Messages, Session→Scores, JobTitle→Scenarios | Prevents orphaned rows on direct SQL deletes |
 | BL-086 | Admin UI `save()`/`remove()` silently swallow 500 errors | `done` — `res.ok` guard + `alert()` added to all 6 mutation handlers across Criteria, Jobs, Scenarios, Orgs tabs. Fixed in commit `a0deb83` |
 | BL-087 | Remove `getNextCustomerMessage` dead code from `src/lib/ai.ts` | `done` — Function removed from `ai.ts`, import + test block removed from `ai.test.ts`. Fixed in commit `a0deb83` |
+| BL-088 | Telnyx `gather_using_speak` with empty `payload` silently rejected — no gather fires | `done` — Fixed with SSML break payload `<speak><break time="200ms"/></speak>`. Commit `f44b725` |
+| BL-089 | `speech_timeout_millis` not a valid Telnyx param; STT defaults to DTMF-only, no transcript | `done` — Renamed to `speech_end_timeout`; added `speech_recognition_language: 'en-US'` and `minimum_phrase_duration: 500`. Commit `f44b725` |
 | BL-063 | Add `validate.mjs` integration diagnostic script | `done` | `node validate.mjs` from project root — tests env vars, DB connectivity, scenario scripts, Groq API (streaming + non-streaming), E2E chat with scoring, Telnyx API |
 | BL-064 | Clean up 8 stuck `IN_PROGRESS` sessions with 0 messages | `done` | 8 sessions (PHONE/CHAT/VOICE) marked `ABANDONED` via SQL; no messages existed so no data loss |
 | BL-065 | Suppress `outputFileTracingRoot` lockfile warning in `next.config.ts` | `done` | Added `outputFileTracingRoot: path.join(__dirname)` to next.config.ts |
@@ -246,8 +250,10 @@ Format: `[ID] Title — Priority | Status | Notes`
 5. **BL-056** — Fix `job_titles.name` unique constraint to `(orgId, name)` scope
 6. **BL-057** — Add `onDelete: Cascade` on Session→Messages/Scores, JobTitle→Scenarios
 
-### Sprint 11 — Admin UX + Dead-Code Cleanup
+### Sprint 11 — Admin UX + Dead-Code Cleanup + Telnyx STT
 1. ~~**BL-086** — Admin `save()`/`remove()` error handling~~ ✅ done `a0deb83`
 2. ~~**BL-087** — Remove `getNextCustomerMessage` dead code~~ ✅ done `a0deb83`
-3. **BL-056** — Scope `job_titles.name` unique to `(orgId, name)` (carry forward)
-4. **BL-057** — Add cascade deletes (carry forward)
+3. ~~**BL-088** — Telnyx gather empty payload silently rejected~~ ✅ done `f44b725`
+4. ~~**BL-089** — Telnyx STT never activated (`speech_timeout_millis` → `speech_end_timeout`)~~ ✅ done `f44b725`
+5. **BL-056** — Scope `job_titles.name` unique to `(orgId, name)` (carry forward)
+6. **BL-057** — Add cascade deletes (carry forward)

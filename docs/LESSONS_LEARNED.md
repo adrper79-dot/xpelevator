@@ -1,6 +1,6 @@
 # XPElevator — Lessons Learned
 
-> Last updated: 2026-02-26 (sprint 11 audit)
+> Last updated: 2026-02-26 (sprint 11 — Telnyx STT fixes)
 > Maintained by: Engineering team
 > Purpose: Prevent recurring issues — consult before starting new features or debugging.
 
@@ -52,6 +52,8 @@ Before starting a new feature, scan the relevant category tables for patterns th
 | **Unbounded session turns** (BL-053) | `ScenarioScript.maxTurns` defined in type but never checked; sessions run indefinitely, consuming unbounded Groq calls and DB rows | Count agent turns before each Groq call; end session when `maxTurns` is reached | Always implement resource limits (turn cap, token budget, timeout) alongside the resource that consumes them |
 | **Schema field stored but never used in AI logic** (BL-079) | `criteria.weight` (1–10) was saved to the DB and shown in the admin UI, but the `scoreSession()` prompt never mentioned it — all criteria were treated as equally important regardless of weight | Include `[importance: X/10]` per criterion in the scoring prompt; compute all averages as weighted means `sum(score×weight)/sum(weight)` | When adding a data field to a schema, trace its full lifecycle (store → prompt → aggregate → display); if any step is missing, the field is misleading to users |
 | **Dead code: exported function never imported** (BL-087) | `getNextCustomerMessage()` was exported from `src/lib/ai.ts` but never imported anywhere in the codebase; misleads future developers into thinking it's the active call path | Remove unused exports or add a `@deprecated` JSDoc comment | After adding any exported function, verify at least one import site exists within a week; use `grep -rn "getNextCustomerMessage" src/` |
+| **Telnyx `gather_using_speak` rejects empty `payload`** (BL-088) | `callGather()` sent `payload: ''` as the TTS text to `gather_using_speak`; Telnyx rejects the request, throwing an error that is silently swallowed by the outer `try/catch` in the webhook handler. Result: no `call.gather.ended` event ever fires and the call goes completely silent after the AI speaks the opening line | Pass a minimal SSML break as the payload: `'<speak><break time="200ms"/></speak>'`. This activates the TTS engine without producing audible speech, satisfying Telnyx's validation while keeping STT mode active | Never pass an empty or blank string as `payload` to any Telnyx TTS/gather action; use an SSML break instead. When testing a phone call, always listen for whether the AI *re-prompts* after each response — silence after the opening is the hallmark of a failed gather |
+| **`speech_timeout_millis` is not a valid Telnyx parameter — STT mode never activates** (BL-089) | `callGather()` used `speech_timeout_millis` (typo/guess), which Telnyx silently ignores. Without the real parameter `speech_end_timeout`, the `gather_using_speak` action defaults to DTMF-only mode — it listens for key-presses, not speech. `call.gather.ended` either never fires or fires with an empty transcript, so no trainee speech is ever captured and the conversation loop dies after turn 1 | Replace `speech_timeout_millis` with `speech_end_timeout` (silence-after-speech timeout in ms). Also add `speech_recognition_language: 'en-US'` and `minimum_phrase_duration: 500` to ensure the STT engine is fully activated | When integrating any external API, use only parameter names that appear verbatim in the official docs — never guess or copy a similar-looking name. For Telnyx STT, the required activation parameter is `speech_end_timeout`; without it the endpoint silently falls back to DTMF | 
 | **Feature divergence: phone path missing chat-path fixes** (BL-081/BL-082) | Chat route (`/api/chat`) received `buildSessionSystemPrompt` + `scoreSession` wiring, but the Telnyx webhook maintained a separate local 4-line stub `buildSystemPrompt` that was never updated. Phone sessions had a `// TODO` score comment — scoring never actually ran | The webhook must import and call the same shared functions from `@/lib/ai`: `buildSessionSystemPrompt` for prompts and `scoreSession` on resolve | Any feature added to the chat path must be simultaneously mirrored in the Telnyx webhook; treat them as a pair; add a checklist item: "phone ↔ chat parity" |
 
 ---
@@ -130,6 +132,8 @@ Before starting a new feature, scan the relevant category tables for patterns th
 | Inconsistent score aggregation across pages | All score totals must use the same formula (weighted mean); grep `reduce.*score` before merging |
 | Phone and chat paths diverging silently | Any prompt, scoring, or turn logic added to the chat path must be simultaneously applied to the Telnyx webhook |
 | Mutation handlers not checking `res.ok` | Every `fetch()` in a save/delete handler must check `if (!res.ok)` and surface the error before calling `refresh()` |
+| `gather_using_speak` with empty payload silently fails | Always pass a minimal SSML break `<speak><break time="200ms"/></speak>` — never an empty string |
+| Guessing Telnyx parameter names — STT never activates | Only use parameter names from official Telnyx docs; `speech_end_timeout` (not `speech_timeout_millis`) is required to activate STT mode |
 
 ---
 
@@ -158,6 +162,8 @@ Before starting a new feature, scan the relevant category tables for patterns th
 - [ ] UI field access (`d.someField`) verified against exact column aliases in the API `SELECT`/`RETURNING` clause
 - [ ] No hardcoded API URL paths in the UI — every `fetch('/api/...')` has a verified matching route file
 - [ ] No exported functions in `src/lib/ai.ts` (or other shared libs) that have zero import sites
+- [ ] **Telnyx `gather_using_speak` payload is never empty/blank string — use SSML break `<speak><break time="200ms"/></speak>`**
+- [ ] **Telnyx STT gather includes `speech_end_timeout` (not `speech_timeout_millis`) + `speech_recognition_language`; test by speaking after the AI opening and listening for a response**
 
 ---
 
