@@ -87,7 +87,10 @@ export async function POST(request: Request) {
 
     const result = await initiateCall({ to, from: callerNumber, clientState });
 
-    // Update session to IN_PROGRESS and store call metadata
+    // Reset session: clear any messages from a previous call attempt on this session,
+    // then set status to IN_PROGRESS. This prevents the idempotency check in
+    // call.answered from seeing stale messages and skipping the opening line.
+    await sql`DELETE FROM chat_messages WHERE session_id = ${sessionId}`;
     await sql`
       UPDATE simulation_sessions
       SET 
