@@ -181,10 +181,19 @@ async function handleEvent(
 
         // Speak the opening — call.speak.ended will trigger startTranscription
         const newState = { ...state, turnCount: 1 };
-        await callSpeak(call_control_id, {
-          payload: cleanOpening,
-          clientState: encodeClientState(newState as unknown as Record<string, unknown>),
-        });
+        try {
+          await callSpeak(call_control_id, {
+            payload: cleanOpening,
+            clientState: encodeClientState(newState as unknown as Record<string, unknown>),
+          });
+          console.log('[telnyx] call.answered: callSpeak succeeded, session:', state.sessionId);
+        } catch (speakErr) {
+          // Save the error as a visible DB record so we can diagnose without tail logs
+          const errMsg = speakErr instanceof Error ? speakErr.message : String(speakErr);
+          console.error('[telnyx] call.answered: callSpeak FAILED:', errMsg);
+          await saveMessage(state.sessionId, 'CUSTOMER', `[SPEAK_ERROR] ${errMsg}`).catch(() => {});
+          await callHangup(call_control_id).catch(() => {});
+        }
         break;
       }
 
