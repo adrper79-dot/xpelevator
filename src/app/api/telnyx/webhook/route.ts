@@ -76,11 +76,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
+  const eventType = body?.data?.event_type ?? 'unknown';
+  console.log(`[telnyx] incoming webhook: ${eventType}`);
+
   // Verify Telnyx webhook signature in production
   const rawBody = await clonedRequest.text();
   const signatureValid = await verifyTelnyxWebhook(clonedRequest.headers, rawBody);
   if (!signatureValid) {
-    console.warn('Telnyx webhook signature verification failed');
+    console.warn(`[telnyx] signature verification FAILED for event: ${eventType}`);
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
   }
 
@@ -129,6 +132,7 @@ async function handleEvent(
   call_control_id: string,
   client_state: string | undefined,
 ) {
+  console.log(`[telnyx] event: ${event_type} | session: ${state?.sessionId ?? 'no-state'} | turn: ${state?.turnCount ?? 0}`);
   switch (event_type) {
       // ── Call answered — AI generates and speaks the opening line ──────────
       // NOTE: gather_using_speak is DTMF-only. Real STT uses start_transcription.
@@ -183,15 +187,18 @@ async function handleEvent(
           SELECT status FROM simulation_sessions WHERE id = ${state.sessionId}
         `;
         const sessionSpeak: any = sessionRowsSpeak[0] ?? null;
+        console.log(`[telnyx] call.speak.ended: session status=${sessionSpeak?.status}, call_control_id=${call_control_id.slice(0, 20)}...`);
         if (sessionSpeak?.status === 'COMPLETED') {
           await callHangup(call_control_id);
           break;
         }
         // Start real-time transcription — fires call.transcription webhooks
+        console.log('[telnyx] call.speak.ended: calling startTranscription...');
         await startTranscription(call_control_id, {
-          engine: 'B',  // 'B' = Telnyx STT (no external key required)
+          engine: 'Telnyx',
           clientState: client_state,
         });
+        console.log('[telnyx] call.speak.ended: startTranscription OK');
         break;
       }
 
@@ -204,6 +211,7 @@ async function handleEvent(
         if (!state) break;
 
         const transcriptionData = payload.transcription_data;
+        console.log(`[telnyx] call.transcription: is_final=${transcriptionData?.is_final}, transcript='${transcriptionData?.transcript?.slice(0, 80) ?? ''}', language=${transcriptionData?.language}`);
         if (!transcriptionData?.is_final) {
           // Partial result — ignore, wait for is_final=true
           break;

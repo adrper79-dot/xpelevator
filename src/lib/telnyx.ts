@@ -123,30 +123,37 @@ export async function callSpeak(callControlId: string, payload: {
  * Webhook fired: call.transcription
  *   payload.transcription_data.transcript  — the spoken text
  *   payload.transcription_data.is_final    — true when utterance is complete
+ *
+ * NOTE: engine 'B' is a legacy alias — new SDK uses 'Telnyx'.
+ * language must be a short BCP-47 root code ('en', NOT 'en-US') for engine Telnyx/B.
  */
 export async function startTranscription(callControlId: string, options: {
   engine?: 'A' | 'B' | 'Google' | 'Telnyx' | 'Deepgram';
   language?: string;
   clientState?: string;
 }) {
+  const engine = options.engine ?? 'Telnyx';
+  const body: Record<string, unknown> = {
+    transcription_engine: engine,
+    transcription_engine_config: {
+      transcription_engine: engine,
+      language: options.language ?? 'en',  // short code only; 'en-US' is invalid for Telnyx engine
+      transcription_model: 'openai/whisper-large-v3-turbo',
+    },
+    client_state: options.clientState,
+  };
+  console.log('[telnyx] transcription_start request:', JSON.stringify({ ...body, client_state: '<redacted>' }));
   const res = await fetch(`${TELNYX_BASE}/calls/${callControlId}/actions/transcription_start`, {
     method: 'POST',
     headers: telnyxHeaders(),
-    body: JSON.stringify({
-      transcription_engine: options.engine ?? 'B',  // 'B' = Telnyx STT (default)
-      transcription_engine_config: {
-        language: options.language ?? 'en-US',
-        transcription_engine: 'B',
-        transcription_model: 'openai/whisper-large-v3-turbo',
-      },
-      client_state: options.clientState,
-    }),
+    body: JSON.stringify(body),
   });
+  const responseText = await res.text();
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Telnyx start_transcription failed: ${res.status} ${text}`);
+    throw new Error(`Telnyx start_transcription failed: ${res.status} ${responseText}`);
   }
-  return res.json();
+  console.log('[telnyx] transcription_start response:', res.status, responseText.slice(0, 200));
+  return JSON.parse(responseText);
 }
 
 /** Stop real-time speech-to-text transcription on an active call. */
