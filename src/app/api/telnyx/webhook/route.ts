@@ -212,6 +212,10 @@ async function handleEvent(
           await callHangup(call_control_id);
           break;
         }
+        // Small delay before listening — prevents audio buffer bleed from AI TTS
+        // being captured at the start of the transcription session.
+        await new Promise(r => setTimeout(r, 400));
+
         // Start real-time transcription — fires call.transcription webhooks
         console.log('[telnyx] call.speak.ended: calling startTranscription...');
         try {
@@ -245,41 +249,38 @@ async function handleEvent(
         }
 
         const transcript = transcriptionData.transcript?.trim() ?? '';
+        const wordCount = transcript.split(/\s+/).filter(Boolean).length;
 
-        if (!transcript) {
-          // is_final but empty transcript — silence / no speech detected
+        if (!transcript || wordCount < 2) {
+          // Empty or single-word transcript — treat as silence/noise, re-listen
           const turn = state.turnCount ?? 0;
-          console.warn('[telnyx] call.transcription is_final with empty transcript (silence). turn:', turn);
-          // Stop transcription first, then re-prompt
+          console.warn(`[telnyx] call.transcription: ignoring noise/silence ("${transcript}"). turn: ${turn}`);
           try { await stopTranscription(call_control_id); } catch {}
           if (turn > 10) {
             await callHangup(call_control_id);
           } else {
-            await callSpeak(call_control_id, {
-              payload: 'Are you still there?',
+            // Simply restart listening — don't prompt, avoid breaking flow
+            await new Promise(r => setTimeout(r, 300));
+            await startTranscription(call_control_id, {
+              engine: 'Telnyx',
+              track: 'inbound',
               clientState: client_state,
-            });
+            }).catch(() => callHangup(call_control_id));
           }
           break;
         }
 
-        // Stop transcription before processing — prevents picking up AI's TTS voice
-        await stopTranscription(call_control_id);
+        // Stop transcription and kick off Groq in parallel for lower latency.
+        // We save the message and load history while Telnyx processes the stop.
+        const [, scenarioRows, messages] = await Promise.all([
+          stopTranscription(call_control_id).catch(() => {}),
+          sql`SELECT script FROM scenarios WHERE id = ${state.scenarioId}`,
+          sql`SELECT role, content FROM chat_messages WHERE session_id = ${state.sessionId} ORDER BY timestamp ASC`,
+        ]);
 
         // Save caller's (trainee/AGENT) turn to DB
         await saveMessage(state.sessionId, 'AGENT', transcript);
 
-        // Load conversation history for context
-        const messages = await sql`
-          SELECT role, content
-          FROM chat_messages
-          WHERE session_id = ${state.sessionId}
-          ORDER BY timestamp ASC
-        `;
-
-        const scenarioRows = await sql`
-          SELECT script FROM scenarios WHERE id = ${state.scenarioId}
-        `;
         const scenario: any = scenarioRows[0] ?? null;
         const script = (scenario?.script ?? {}) as Record<string, unknown>;
 
@@ -290,6 +291,8 @@ async function handleEvent(
           role: m.role === 'AGENT' ? ('user' as const) : ('assistant' as const),
           content: m.content,
         }));
+        // Append the current agent turn so Groq has it in context
+        groqMessages.push({ role: 'user' as const, content: transcript });
 
         const systemPromptGather = buildSessionSystemPrompt(state.scenarioName, script);
         const client = getGroqClient();
@@ -300,6 +303,7 @@ async function handleEvent(
             ...groqMessages,
           ],
           max_tokens: 150,
+          temperature: 0.8,
         });
 
         const aiText = aiReply.choices[0]?.message?.content?.trim() ?? '';

@@ -8,37 +8,65 @@ export type { ScenarioScript, ScoreResult, ChatMessage };
 
 // ─── System Prompts ──────────────────────────────────────────────────────────
 
+// Pre-generated name pool keeps the customer persona varied across calls
+const CUSTOMER_NAMES = [
+  'Marcus Webb', 'Sandra Okafor', 'David Chen', 'Patricia Nguyen',
+  'Robert Castillo', 'Linda Kowalski', 'James Osei', 'Karen Yamamoto',
+  'Thomas Mbeki', 'Angela Rivera', 'Charles Petrov', 'Margaret Johansson',
+];
+
+const EMOTIONAL_STATES: Record<string, string[]> = {
+  easy: ['mildly inconvenienced', 'politely impatient', 'calm but pressed for time'],
+  medium: ['noticeably frustrated', 'stressed', 'short-tempered but not rude'],
+  hard: ['angry', 'extremely frustrated', 'borderline rude — demanding immediate action'],
+};
+
 function buildCustomerSystemPrompt(
   scenarioName: string,
   script: ScenarioScript
 ): string {
+  // Pick a consistent name for this prompt (stable hash so same session = same name)
+  const nameIndex = Math.abs(
+    scenarioName.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)
+  ) % CUSTOMER_NAMES.length;
+  const customerName = CUSTOMER_NAMES[nameIndex];
+
+  const emotionalState =
+    (EMOTIONAL_STATES[script.difficulty] ?? EMOTIONAL_STATES.medium)[
+      Math.floor(Math.random() * 3)
+    ];
+
   const difficultyGuide = {
-    easy: 'Be cooperative, friendly, and accept reasonable solutions on the first attempt.',
+    easy: 'Be cooperative and accept reasonable solutions on the first or second attempt. Express relief and gratitude when resolved.',
     medium:
-      'Be mildly frustrated. Ask clarifying questions and require some reassurance before accepting a solution.',
-    hard: 'Be very frustrated or upset. Interrupt occasionally, push back on solutions, and only de-escalate if the agent handles the situation exceptionally well.',
+      'Be mildly frustrated. Push back once or twice before accepting a good solution. Make the agent work a little for it.',
+    hard: 'Be very frustrated. Interrupt, question every step, push back on standard procedures, and only fully de-escalate if the agent handles the situation exceptionally — empathy AND competence required.',
   }[script.difficulty];
 
-  return `You are a virtual customer in a call center training simulation. Stay completely in character at all times.
+  return `You are roleplaying as a real customer on a phone call. Stay completely in character — never acknowledge being an AI.
 
-SCENARIO: ${scenarioName}
-CUSTOMER PERSONA: ${script.customerPersona}
-YOUR OBJECTIVE: ${script.customerObjective}
-DIFFICULTY LEVEL: ${script.difficulty.toUpperCase()}
+YOUR IDENTITY:
+- Name: ${customerName}
+- Emotional state right now: ${emotionalState}
+- Persona: ${script.customerPersona}
 
-BEHAVIORAL GUIDELINES:
+SITUATION:
+- Scenario: ${scenarioName}
+- Your goal: ${script.customerObjective}
+- Difficulty: ${script.difficulty.toUpperCase()}
+
+HOW TO BEHAVE (${script.difficulty}):
 ${difficultyGuide}
 
-RULES:
-- Never break character or reveal that you are an AI
-- Respond naturally as this customer would — including frustration, confusion, or satisfaction
-- Keep responses concise (1–4 sentences) — this is a phone call or chat conversation
-- If the agent resolves your issue satisfactorily, wrap up the conversation naturally AND append [RESOLVED] on a new line as the very last part of that final message
-- If the conversation ends without resolution, end naturally WITHOUT [RESOLVED]
-- Do NOT ask "How can I help you?" — you are the customer, not the agent
-${script.hints?.length ? `\nSITUATION CUES:\n${script.hints.map(h => `- ${h}`).join('\n')}` : ''}
-
-Begin the conversation by describing your issue or reason for calling.`;
+PHONE CALL RULES:
+- You called THEM — speak first, explain your problem directly
+- Keep each response to 1–3 sentences max (it's a phone call, not an essay)
+- Use natural spoken language — contractions, interruptions, mild impatience as appropriate
+- Do NOT offer help — you are the customer with the problem
+- Do NOT repeat your full issue every turn — the agent heard you
+- If fully resolved, end naturally and append exactly: [RESOLVED]
+- Do NOT append [RESOLVED] unless genuinely satisfied
+${script.hints?.length ? `\nCONTEXT DETAILS:\n${script.hints.map(h => `- ${h}`).join('\n')}` : ''}`;
 }
 
 // ─── Chat Completion ──────────────────────────────────────────────────────────
@@ -160,21 +188,29 @@ export async function scoreSession(
     .map((c, i) => `${i + 1}. ${c.name} [importance: ${c.weight}/10]${c.description ? ` — ${c.description}` : ''}`)
     .join('\n');
 
-  const prompt = `You are evaluating a customer service training session. Score the AGENT's performance.
+  const prompt = `You are an expert customer service coach evaluating a trainee's phone call performance.
 
-CONVERSATION TRANSCRIPT:
+TRANSCRIPT:
 ${transcriptText}
 
-SCORE THE AGENT ON THESE CRITERIA (each 1–10, importance weight shown):
+CRITERIA TO SCORE (1–10 each, weight shown for importance):
 ${criteriaList}
 
-Rules:
-- Score ONLY the agent's messages — not the customer's behaviour
-- 1–4 = Poor, 5–6 = Adequate, 7–8 = Good, 9–10 = Excellent
-- Give proportionally more detailed justification for higher-importance criteria
-- Be objective and specific in justifications
+SCORING GUIDE:
+- 9–10 = Excellent: textbook example, proactive, empathetic
+- 7–8  = Good: handled well, minor gaps
+- 5–6  = Adequate: met minimum bar, missed opportunities
+- 3–4  = Poor: notable failures affecting customer experience
+- 1–2  = Very poor: harmful or completely absent behaviour
 
-Respond ONLY with a valid JSON array, no extra text:
+RULES:
+- Judge ONLY the agent's words and actions — not the customer's behaviour
+- Be specific: cite actual quotes or moments from the transcript in justifications
+- Keep each justification to 1–2 sentences max
+- If the agent did not address a criterion at all, score accordingly (likely 1–4)
+- Higher weight criteria deserve extra scrutiny
+
+Respond ONLY with valid JSON, no markdown, no extra text:
 [{"criteriaIndex": 1, "score": 7, "justification": "..."}]`;
 
   const client = getGroqClient();

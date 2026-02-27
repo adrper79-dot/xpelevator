@@ -30,11 +30,18 @@ export default function PhoneInterface({
   const [callSeconds, setCallSeconds] = useState(0);
   // BL-054: SSE reader ref replaces setInterval poll ref
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+  // Auto-scroll anchor
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   // Sync messages from parent (before call starts)
   useEffect(() => {
     setMessages(initialMessages);
   }, [initialMessages]);
+
+  // Auto-scroll to latest message
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   const stopStreaming = useCallback(() => {
     readerRef.current?.cancel().catch(() => {});
@@ -135,6 +142,9 @@ export default function PhoneInterface({
     onEnded();
   };
 
+  const lastRole = messages.length > 0 ? messages[messages.length - 1].role : null;
+  const customerIsThinking = callStatus === 'connected' && lastRole !== null && lastRole !== 'CUSTOMER';
+
   const fmt = (s: number) =>
     `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
 
@@ -196,41 +206,78 @@ export default function PhoneInterface({
 
           {callStatus === 'calling' && (
             <div className="text-center py-20">
-              <div className="text-5xl mb-6 animate-pulse">📞</div>
-              <p className="text-slate-300 text-lg">Dialing {phoneNumber}…</p>
+              {/* Ripple rings */}
+              <div className="relative inline-flex items-center justify-center mb-8">
+                <span className="absolute inline-flex h-24 w-24 rounded-full bg-green-500 opacity-20 animate-ping" />
+                <span className="absolute inline-flex h-16 w-16 rounded-full bg-green-500 opacity-30 animate-ping [animation-delay:0.3s]" />
+                <span className="relative flex h-12 w-12 items-center justify-center rounded-full bg-green-600 text-2xl">
+                  📞
+                </span>
+              </div>
+              <p className="text-slate-300 text-lg font-medium">Dialing {phoneNumber}…</p>
               <p className="text-slate-500 text-sm mt-2">Waiting for answer</p>
             </div>
           )}
 
           {callStatus === 'connected' && (
-            <div>
-              <div className="text-center mb-8">
-                <div className="text-4xl mb-2">📞</div>
-                <p className="text-green-400 font-semibold">Call in progress</p>
-                <p className="text-slate-400 text-sm">Live transcript (updates as you speak)</p>
+            <div className="pb-20">
+              {/* Status bar */}
+              <div className="text-center mb-6">
+                <p className="text-green-400 font-semibold text-sm uppercase tracking-widest">
+                  ● Live Call
+                </p>
+                <p className="text-slate-500 text-xs mt-1">Transcript updates as you speak</p>
               </div>
-              <div className="space-y-4 mb-8">
+
+              {/* Messages */}
+              <div className="space-y-4 mb-4">
                 {messages.length === 0 && (
                   <p className="text-center text-slate-500 py-8 animate-pulse">
-                    Waiting for conversation to begin…
+                    Connecting to virtual customer…
                   </p>
                 )}
                 {messages.map(msg => (
                   <MessageBubble key={msg.id} message={msg} />
                 ))}
-              </div>
-              <div className="text-center">
-                <button
-                  onClick={hangUp}
-                  className="px-8 py-3 bg-red-600 hover:bg-red-500 rounded-full font-semibold transition-colors"
-                >
-                  🔴 Hang Up
-                </button>
+
+                {/* "Customer is thinking…" indicator */}
+                {customerIsThinking && (
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl flex-shrink-0">👤</span>
+                    <div className="bg-slate-700/60 border border-slate-600 rounded-2xl rounded-tl-none px-4 py-3">
+                      <span className="flex gap-1 items-center">
+                        <span className="h-2 w-2 rounded-full bg-slate-400 animate-bounce [animation-delay:0ms]" />
+                        <span className="h-2 w-2 rounded-full bg-slate-400 animate-bounce [animation-delay:150ms]" />
+                        <span className="h-2 w-2 rounded-full bg-slate-400 animate-bounce [animation-delay:300ms]" />
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Auto-scroll anchor */}
+                <div ref={messagesEndRef} />
               </div>
             </div>
           )}
         </div>
       </div>
+
+      {/* Sticky hang-up bar — shown only during connected call */}
+      {callStatus === 'connected' && (
+        <div className="sticky bottom-0 border-t border-slate-800 bg-slate-900/90 backdrop-blur-sm px-6 py-4 flex-shrink-0">
+          <div className="max-w-3xl mx-auto flex items-center justify-between">
+            <p className="text-slate-400 text-sm">
+              {customerIsThinking ? '🟡 Customer responding…' : '🟢 Your turn to speak'}
+            </p>
+            <button
+              onClick={hangUp}
+              className="flex items-center gap-2 px-6 py-2.5 bg-red-600 hover:bg-red-500 rounded-full font-semibold transition-colors text-sm"
+            >
+              🔴 Hang Up
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

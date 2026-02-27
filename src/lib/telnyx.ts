@@ -95,8 +95,10 @@ export async function callSpeak(callControlId: string, payload: {
     headers: telnyxHeaders(),
     body: JSON.stringify({
       payload: payload.payload,
+      // Polly.Joanna-Neural: natural-sounding US English female voice.
+      // Falls back to payload.voice if explicitly set (e.g. for male personas).
+      voice: payload.voice ?? 'Polly.Joanna-Neural',
       language: payload.language ?? 'en-US',
-      voice: payload.voice ?? 'female',
       client_state: payload.clientState,
     }),
   });
