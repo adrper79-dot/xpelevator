@@ -50,7 +50,7 @@ function validateEnv(): void {
   if (isDev) {
     console.warn(
       `\n⚠️  XPElevator: Missing environment variables:\n${lines.join('\n')}\n` +
-        `  Check your .env file and add the missing values from secrets.txt.\n`
+        `  Check your .env file and add the missing values.\n`
     );
   } else {
     // In production, hard-required vars must be present

@@ -1,14 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getGroqClient } from '@/lib/groq-fetch';
+import { requireAuth, AuthError } from '@/lib/auth-api';
 
 // Test endpoint to diagnose Groq API issues
-// GET /api/debug/groq
+// GET /api/debug/groq — admin only
 export async function GET(request: NextRequest) {
-  const result: Record<string, any> = {
+  try {
+    await requireAuth(request, 'ADMIN');
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+  }
+
+  const result: Record<string, unknown> = {
     timestamp: new Date().toISOString(),
     apiKeyPresent: !!process.env.GROQ_API_KEY,
     apiKeyLength: process.env.GROQ_API_KEY?.length || 0,
-    apiKeyPreview: process.env.GROQ_API_KEY?.substring(0, 10) + '...',
   };
   
   try {
@@ -34,15 +43,8 @@ export async function GET(request: NextRequest) {
     result.error = {
       message: error instanceof Error ? error.message : String(error),
       type: error?.constructor?.name || 'Unknown',
-      stack: error instanceof Error ? error.stack : undefined,
       // @ts-ignore - Groq SDK might have specific error fields
       status: error?.status,
-      // @ts-ignore
-      statusText: error?.statusText,
-      // @ts-ignore
-      code: error?.code,
-      // @ts-ignore - Full error object for debugging
-      raw: JSON.stringify(error, Object.getOwnPropertyNames(error)),
     };
   }
   
