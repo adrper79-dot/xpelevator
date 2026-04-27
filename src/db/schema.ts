@@ -68,12 +68,12 @@ export const milestones = pgTable('milestones', {
 
 /** Stripe subscription records per member. */
 export const subscriptions = pgTable('subscriptions', {
-  id:                   uuid('id').primaryKey().defaultRandom(),
-  memberId:             uuid('member_id').notNull().references(() => members.id, { onDelete: 'cascade' }),
-  stripeSubscriptionId: text('stripe_subscription_id').notNull().unique(),
-  stripePriceId:        text('stripe_price_id').notNull(),
-  status:               text('status').notNull(),  // active | past_due | canceled | trialing
-  currentPeriodEnd:     timestamptz('current_period_end').notNull(),
-  createdAt:            timestamptz('created_at').notNull().defaultNow(),
-  updatedAt:            timestamptz('updated_at').notNull().defaultNow(),
+  id:               uuid('id').primaryKey().defaultRandom(),
+  memberId:         uuid('member_id').notNull().references(() => members.id, { onDelete: 'cascade' }).unique(),
+  stripeCustomerId: text('stripe_customer_id').notNull().unique(),
+  stripePriceId:    text('stripe_price_id').notNull(),
+  status:           text('status').notNull(),  // active | past_due | canceled | trialing | none
+  currentPeriodEnd: timestamptz('current_period_end').notNull(),
+  createdAt:        timestamptz('created_at').notNull().defaultNow(),
+  updatedAt:        timestamptz('updated_at').notNull().defaultNow(),
 });
