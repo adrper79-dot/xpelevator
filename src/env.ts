@@ -15,6 +15,8 @@ export interface Env {
   GROK_API_KEY: string;
   GROQ_API_KEY: string;
   RESEND_API_KEY: string;
+  STRIPE_SECRET_KEY: string;
+  STRIPE_WEBHOOK_SECRET: string;
 
   // ── Non-secret vars (wrangler.jsonc [vars]) ──────────────────────────────
   ENVIRONMENT: string;
