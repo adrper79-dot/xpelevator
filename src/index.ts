@@ -4,9 +4,9 @@ import {
   ErrorCodes,
   withErrorBoundary,
   toErrorResponse,
-} from '@adrper79-dot/errors';
-import { createDb } from '@adrper79-dot/neon';
-import { jwtMiddleware } from '@adrper79-dot/auth';
+} from '@latimer-woods-tech/errors';
+import { createDb } from '@latimer-woods-tech/neon';
+import { jwtMiddleware } from '@latimer-woods-tech/auth';
 import type { Env } from './env.js';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -30,7 +30,7 @@ app.get('/api/me', (c) => {
 // ── Add your routes here ─────────────────────────────────────────────────────
 //
 // Example: mount the admin panel
-// import { createAdminRouter } from '@adrper79-dot/admin';
+// import { createAdminRouter } from '@latimer-woods-tech/admin';
 // app.route('/admin', createAdminRouter({
 //   db: createDb(c.env.DB),
 //   appId: 'xpelevator',

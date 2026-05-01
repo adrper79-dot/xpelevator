@@ -12,19 +12,19 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@adrper79-dot/analytics": "^0.2.0",
-    "@adrper79-dot/auth": "^0.2.0",
-    "@adrper79-dot/deploy": "^0.2.0",
-    "@adrper79-dot/errors": "^0.2.0",
-    "@adrper79-dot/logger": "^0.2.0",
-    "@adrper79-dot/monitoring": "^0.2.0",
-    "@adrper79-dot/neon": "^0.2.0",
-    "@adrper79-dot/stripe": "^0.2.0",
+    "@latimer-woods-tech/analytics": "^0.2.0",
+    "@latimer-woods-tech/auth": "^0.2.0",
+    "@latimer-woods-tech/deploy": "^0.2.0",
+    "@latimer-woods-tech/errors": "^0.2.0",
+    "@latimer-woods-tech/logger": "^0.2.0",
+    "@latimer-woods-tech/monitoring": "^0.2.0",
+    "@latimer-woods-tech/neon": "^0.2.0",
+    "@latimer-woods-tech/stripe": "^0.2.0",
     "drizzle-orm": "^0.43.0",
     "hono": "^4.12.15"
   },
   "devDependencies": {
-    "@adrper79-dot/testing": "^0.2.0",
+    "@latimer-woods-tech/testing": "^0.2.0",
     "@cloudflare/workers-types": "^4.20260426.1",
     "@cloudflare/vitest-pool-workers": "^0.8.0",
     "drizzle-kit": "^0.31.0",

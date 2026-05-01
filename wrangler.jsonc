@@ -4,7 +4,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "main": "src/index.ts",
 
-  // ── Hyperdrive (Neon Postgres via @adrper79-dot/neon) ──────────────────────
+  // ── Hyperdrive (Neon Postgres via @latimer-woods-tech/neon) ──────────────────────
   "hyperdrive": [
     {
       "binding": "DB",

@@ -22,7 +22,7 @@
     },
     {
       "matchPackagePatterns": [
-        "^@adrper79-dot/"
+        "^@latimer-woods-tech/"
       ],
       "groupName": "factory packages",
       "schedule": [
