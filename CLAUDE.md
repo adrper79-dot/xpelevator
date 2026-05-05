@@ -2,6 +2,7 @@
 
 > Canonical reference for all agents, engineers, and AI tools working in this repository.
 > This app is currently in early scaffold stage — mission and routes will expand.
+> 🔩 **Shared stack (packages, AI chain, banned tools):** [factory `docs/STACK.md`](https://github.com/Latimer-Woods-Tech/factory/blob/main/docs/STACK.md) — versioned manifest, auto-updated on every publish.
 
 ## Mission
 
